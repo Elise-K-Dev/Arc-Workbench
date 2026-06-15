@@ -84,7 +84,9 @@ test("workspace wrappers escape paths and cwd mismatch detection is explicit", a
     };
   });
 
-  expect(result.posix).toContain("cd '/tmp/Elise'\\''s Project' && {");
+  expect(result.posix).toContain("if cd '/tmp/Elise'\\''s Project'; then");
+  expect(result.posix).toContain("__ARC_CWD_BEFORE:run-1:");
+  expect(result.posix).toContain("__ARC_CWD_AFTER:run-1:");
   expect(result.powershell).toContain(
     "Push-Location 'C:\\Work\\Elise''s Project'",
   );
@@ -309,7 +311,7 @@ rm -rf build
       (window as typeof window & { __terminalWrites: string[] })
         .__terminalWrites[0],
   );
-  expect(written).toContain("cd '/tmp/project' && {");
+  expect(written).toContain("if cd '/tmp/project'; then");
   expect(written).toContain("rm -rf build");
 });
 
@@ -381,6 +383,16 @@ test("Balanced auto-runs read tools and result feedback stays in the task", asyn
     localStorage.setItem(
       "arc-workbench.workspace.v1",
       JSON.stringify({ rootPath: "/tmp/project" }),
+    );
+    localStorage.setItem(
+      "arc-workbench.workspace.trust.v1",
+      JSON.stringify({
+        "/tmp/project": {
+          workspaceRoot: "/tmp/project",
+          trustLevel: "trusted",
+          updatedAt: "2026-06-15T00:00:00.000Z",
+        },
+      }),
     );
     localStorage.setItem(
       "arc-workbench.agent.settings.v1",

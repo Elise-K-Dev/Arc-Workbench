@@ -61,7 +61,16 @@ export function ToolRequestCard({
           result.status === "completed"
             ? `Read tool completed · ${request.tool}`
             : `Read tool failed · ${request.tool}`,
-        summary: result.summary,
+        summary: `${result.summary} · ${
+          result.delivery === "auto_sent" ? "auto-sent" : "waiting for user"
+        }`,
+        metadata: {
+          tool: request.tool,
+          bytes: result.bytes,
+          resultCount: result.resultCount,
+          truncated: result.truncated,
+          delivery: result.delivery,
+        },
       });
     }
   }, [request.id, request.tool, result, taskId]);
@@ -116,9 +125,15 @@ export function ToolRequestCard({
           )}
           {result && (
             <>
-              <button type="button" disabled={running} onClick={() => void send()}>
-                Send Result to Agent
-              </button>
+              {result.delivery !== "auto_sent" && (
+                <button
+                  type="button"
+                  disabled={running}
+                  onClick={() => void send()}
+                >
+                  Send Result to Agent
+                </button>
+              )}
               <button type="button" onClick={() => void copy()}>
                 Copy Result
               </button>
@@ -137,7 +152,19 @@ export function ToolRequestCard({
     >
       <pre className="tool-request-card__request">{request.raw}</pre>
       {result && (
-        <pre className="tool-request-card__result">{result.output}</pre>
+        <>
+          <div className="tool-request-card__meta">
+            {result.resultCount === undefined
+              ? `${result.bytes} B`
+              : `${result.resultCount} results · ${result.bytes} B`}
+            {result.backend ? ` · ${result.backend}` : ""}
+            {result.truncated ? " · truncated" : ""}
+            {result.delivery === "auto_sent"
+              ? " · auto-sent"
+              : " · waiting for user"}
+          </div>
+          <pre className="tool-request-card__result">{result.output}</pre>
+        </>
       )}
       {status && <div className="tool-request-card__status">{status}</div>}
     </AgentActivityRow>

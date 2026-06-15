@@ -3,9 +3,21 @@
 Arc Workbench is a lightweight, terminal-first desktop workbench. Its primary
 workspace objects are dockable panes rather than files or IDE tool windows.
 
-This repository contains the MVP 0 and MVP 1 foundation: a Tauri v2 desktop
-shell, a React/TypeScript floating workspace, and real local PTY-backed
+Current release: **v0.2.0, Native Agent Harness**. Arc is a Tauri v2 desktop
+shell with a React/TypeScript floating workspace and real local PTY-backed
 terminals.
+
+## v0.2 Native Agent Harness
+
+- Terminal cwd tracking through visible PTY command-wrapper markers
+- Structured ripgrep workspace search with a bounded Rust fallback
+- Optional bounded read-only Agent tool loop, disabled by default
+- Keyboard-first `Ctrl+K` command palette
+- Per-root workspace trust with conservative unknown-workspace defaults
+- Clearer command and tool activity metadata
+
+Shell commands still run only in visible PTYs. Modifying and dangerous commands,
+patch apply, and patch rollback retain explicit user approval.
 
 ## Requirements
 
@@ -89,8 +101,7 @@ model as the primary router and optional Codex escalation.
 
 Arc Workbench does not currently include LSP diagnostics or completion, Git
 write workflows, autonomous AI actions, SSH support, debugger, notebooks,
-cloud login, or VS Code extension compatibility. There is also no command
-palette yet.
+cloud login, or VS Code extension compatibility.
 
 ## Local Preview Pane v0
 
@@ -227,7 +238,8 @@ confirmation. Even when inspection is auto-allowed, command proposals remain
 one-click in v0; Arc does not start an autonomous command loop.
 
 Permission settings are stored separately in
-`arc-workbench.agent.permissions.v1`. Dangerous and modifying commands can
+`arc-workbench.agent.permissions.v1`. Workspace trust is stored per root in
+`arc-workbench.workspace.trust.v1`. Dangerous and modifying commands can
 never become silent auto-runs through the built-in profiles. The user remains
 the final authority for every shell write, filesystem patch, and rollback.
 
@@ -236,12 +248,14 @@ the final authority for every shell write, filesystem patch, and rollback.
 The local Agent can request `read_file`, `read_files`,
 `list_workspace_files`, `search_workspace`, `get_git_status`, `get_git_diff`,
 `get_open_editors`, and `get_recent_terminal_output` through explicit
-`tool_request` blocks. Balanced auto-runs these read-only requests and displays
-the result as a task activity. Results are sent back to the Agent only when the
-user clicks **Send Result to Agent**, unless the separately visible auto-send
-setting is enabled.
+`tool_request` blocks. Trusted workspaces may auto-run these read-only requests
+under the selected profile. Results are sent back only when the user clicks
+**Send Result to Agent**, unless the visible bounded read-only tool loop is
+enabled. The loop defaults to Off and stops at its configured maximum.
 
-File tools accept workspace-relative paths only. A dedicated Rust read command
+File tools accept workspace-relative paths only. Search prefers `rg --json` and
+returns structured matches; a bounded Rust text scan is used when ripgrep is
+unavailable. A dedicated Rust read command
 canonicalizes both root and target, rejects traversal and symlink escapes,
 rejects binary and files over 1 MB, and returns text only. Frontend output is
 bounded again and passed through the shared secret redactor. Tool execution

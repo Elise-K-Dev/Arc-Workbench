@@ -36,6 +36,7 @@ type Props = {
   ) => void;
   panes: FloatingPaneState[];
   workspaceRoot?: string;
+  workspaceTrust: import("../workspace/workspaceTrust").WorkspaceTrustLevel;
   onAgentUpdate: (
     id: string,
     update: {
@@ -44,6 +45,8 @@ type Props = {
       temperature?: number;
       maxTokens?: number;
       streaming?: boolean;
+      showCodexRouterSuggestions?: boolean;
+      toolLoop?: import("../agent/tools/toolLoop").AgentToolLoopSettings;
     },
   ) => void;
   onPreviewPatch: (patchId: string) => void;
@@ -87,6 +90,7 @@ export function PaneRenderer({
   onGitUpdate,
   panes,
   workspaceRoot,
+  workspaceTrust,
   onAgentUpdate,
   onPreviewPatch,
   gitRefreshToken,
@@ -137,6 +141,7 @@ export function PaneRenderer({
         pane={pane}
         panes={panes}
         rootPath={workspaceRoot}
+        workspaceTrust={workspaceTrust}
         onUpdate={onAgentUpdate}
         onPreviewPatch={onPreviewPatch}
         onOpenFile={onOpenFile}

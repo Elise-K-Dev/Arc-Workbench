@@ -1,7 +1,7 @@
 import type { CommandRunLocation } from "./commandRiskTypes";
 import type { ShellHint } from "./commandTypes";
 
-function quotePosix(value: string): string {
+export function quotePosix(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -25,12 +25,25 @@ export function wrapCommandForTracking(
       "set __arc_exit $status",
       `printf '\\n__ARC_CMD_END:${runId}:%s__\\n' "$__arc_exit"`,
     ].join("\n");
-    return useWorkspace
-      ? `cd ${quotePosix(workspaceRoot)}; and begin\n${tracked}\nend\n`
-      : `${tracked}\n`;
+    return [
+      `printf '\\n__ARC_CWD_BEFORE:${runId}:%s__\\n' (pwd -P)`,
+      ...(useWorkspace
+        ? [
+            `if cd ${quotePosix(workspaceRoot)}`,
+            tracked,
+            "else",
+            `printf '\\n__ARC_CMD_START:${runId}__\\n'`,
+            `printf '\\n__ARC_CMD_END:${runId}:1__\\n'`,
+            "end",
+          ]
+        : [tracked]),
+      `printf '\\n__ARC_CWD_AFTER:${runId}:%s__\\n' (pwd -P)`,
+      "",
+    ].join("\n");
   }
   if (shellHint === "powershell" || shellHint === "pwsh") {
     return [
+      `Write-Output "__ARC_CWD_BEFORE:${runId}:$((Get-Location).Path)__"`,
       ...(useWorkspace
         ? [`Push-Location ${quotePowerShell(workspaceRoot)}`]
         : []),
@@ -40,6 +53,7 @@ export function wrapCommandForTracking(
       "if ($null -eq $arcExit) { $arcExit = 0 }",
       `Write-Output "__ARC_CMD_END:${runId}:$arcExit__"`,
       ...(useWorkspace ? ["Pop-Location"] : []),
+      `Write-Output "__ARC_CWD_AFTER:${runId}:$((Get-Location).Path)__"`,
       "",
     ].join("\n");
   }
@@ -49,7 +63,19 @@ export function wrapCommandForTracking(
     "__arc_exit=$?",
     `printf '\\n__ARC_CMD_END:${runId}:%s__\\n' "$__arc_exit"`,
   ].join("\n");
-  return useWorkspace
-    ? `cd ${quotePosix(workspaceRoot)} && {\n${tracked}\n}\n`
-    : `${tracked}\n`;
+  return [
+    `printf '\\n__ARC_CWD_BEFORE:${runId}:%s__\\n' "$(pwd -P)"`,
+    ...(useWorkspace
+      ? [
+          `if cd ${quotePosix(workspaceRoot)}; then`,
+          tracked,
+          "else",
+          `printf '\\n__ARC_CMD_START:${runId}__\\n'`,
+          `printf '\\n__ARC_CMD_END:${runId}:1__\\n'`,
+          "fi",
+        ]
+      : [tracked]),
+    `printf '\\n__ARC_CWD_AFTER:${runId}:%s__\\n' "$(pwd -P)"`,
+    "",
+  ].join("\n");
 }

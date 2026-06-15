@@ -1,3 +1,8 @@
+import {
+  DEFAULT_TOOL_LOOP_SETTINGS,
+  type AgentToolLoopSettings,
+} from "./tools/toolLoop";
+
 export type AgentSettings = {
   endpoint: string;
   model: string;
@@ -5,6 +10,7 @@ export type AgentSettings = {
   maxTokens: number;
   streaming: boolean;
   showCodexRouterSuggestions: boolean;
+  toolLoop: AgentToolLoopSettings;
 };
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -14,6 +20,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   maxTokens: 4096,
   streaming: true,
   showCodexRouterSuggestions: true,
+  toolLoop: DEFAULT_TOOL_LOOP_SETTINGS,
 };
 
 const STORAGE_KEY = "arc-workbench.agent.settings.v1";
@@ -50,6 +57,12 @@ export function loadAgentSettings(): AgentSettings {
         typeof value.showCodexRouterSuggestions === "boolean"
           ? value.showCodexRouterSuggestions
           : DEFAULT_AGENT_SETTINGS.showCodexRouterSuggestions,
+      toolLoop: {
+        enabled: value.toolLoop?.enabled === true,
+        maxTurns: [1, 3, 5].includes(value.toolLoop?.maxTurns ?? 0)
+          ? value.toolLoop!.maxTurns
+          : DEFAULT_TOOL_LOOP_SETTINGS.maxTurns,
+      },
     };
   } catch {
     localStorage.removeItem(STORAGE_KEY);

@@ -300,6 +300,17 @@ export function useFloatingPanes() {
     return pane.id;
   }, []);
 
+  const centerAllPanes = useCallback(() => {
+    setPanes((current) =>
+      current.map((pane, index) => ({
+        ...pane,
+        x: BASE_X + (index % CASCADE_STEPS) * 18,
+        y: BASE_Y + (index % CASCADE_STEPS) * 18,
+        maximized: false,
+      })),
+    );
+  }, []);
+
   const runCommandInTerminal = useCallback(
     async (
       paneId: string,
@@ -912,6 +923,7 @@ export function useFloatingPanes() {
     focusPane,
     updateBounds,
     toggleMaximize,
+    centerAllPanes,
     resetLayout,
   };
 }

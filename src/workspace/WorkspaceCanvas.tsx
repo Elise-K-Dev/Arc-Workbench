@@ -35,6 +35,7 @@ type Props = {
     update: { rootPath?: string; selectedFile?: string },
   ) => void;
   workspaceRoot?: string;
+  workspaceTrust: import("./workspaceTrust").WorkspaceTrustLevel;
   onAgentUpdate: (
     id: string,
     update: {
@@ -42,6 +43,9 @@ type Props = {
       model?: string;
       temperature?: number;
       maxTokens?: number;
+      streaming?: boolean;
+      showCodexRouterSuggestions?: boolean;
+      toolLoop?: import("../agent/tools/toolLoop").AgentToolLoopSettings;
     },
   ) => void;
   onPreviewPatch: (patchId: string) => void;
@@ -93,6 +97,7 @@ export function WorkspaceCanvas({
   activeEditorPath,
   onGitUpdate,
   workspaceRoot,
+  workspaceTrust,
   onAgentUpdate,
   onPreviewPatch,
   gitRefreshToken,
@@ -164,6 +169,7 @@ export function WorkspaceCanvas({
               onGitUpdate={onGitUpdate}
               panes={panes}
               workspaceRoot={workspaceRoot}
+              workspaceTrust={workspaceTrust}
               onAgentUpdate={onAgentUpdate}
               onPreviewPatch={onPreviewPatch}
               gitRefreshToken={gitRefreshToken}

@@ -20,6 +20,7 @@ export type CommandTerminalOption = {
   paneId: string;
   title: string;
   ready: boolean;
+  cwd?: string;
 };
 
 type Props = {
@@ -268,6 +269,25 @@ export function CommandProposalCard({
             {permission === "auto_allow"
               ? "Auto-run allowed by current permission profile. One-click Run is still required."
               : `Permission: ${permission.replaceAll("_", " ")}`}
+          </div>
+          <div className="command-proposal__context">
+            <div>
+              Terminal:{" "}
+              {terminals.find((terminal) => terminal.paneId === targetId)
+                ?.title ?? "none"}
+            </div>
+            <div>
+              Terminal cwd:{" "}
+              {terminals.find((terminal) => terminal.paneId === targetId)
+                ?.cwd ?? "unknown"}
+            </div>
+            <div>Workspace root: {workspaceRoot ?? "none"}</div>
+            <div>
+              Run from:{" "}
+              {runLocation === "workspace_root"
+                ? "Workspace root"
+                : "Terminal cwd"}
+            </div>
           </div>
           <div className="command-proposal__controls">
             <select

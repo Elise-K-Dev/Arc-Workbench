@@ -293,6 +293,38 @@ invalidates open previews by design. Opening affected files accepts only
 relative paths under the current workspace and reuses the normal editor-open
 path.
 
+## Native Agent Harness v0.2
+
+Tracked command wrappers emit cwd-before, start, end, and cwd-after markers
+through the same visible PTY path. The frontend stores cwd per terminal and
+command run. Workspace-root mode remains a visible, safely quoted directory
+change; no hidden cwd probe or command process exists.
+
+Workspace search crosses a dedicated Tauri command boundary. Rust canonicalizes
+the root, validates filters, prefers `rg --json`, enforces ignored-directory,
+result-count, and byte limits, and returns structured matches. A bounded UTF-8
+scanner is used when ripgrep is unavailable.
+
+The optional read-only loop follows this flow:
+
+```txt
+assistant tool_request -> trust/permission check -> bounded read tool
+-> visible activity result -> optional same-task Agent follow-up
+```
+
+It is disabled by default, accepts only the fixed read-only allowlist, stops on
+failure, turn limit, or user request, and cannot invoke terminal, patch,
+rollback, or file-write paths.
+
+Workspace trust is persisted by exact root in
+`arc-workbench.workspace.trust.v1`. Unknown roots force read, inspect, and check
+actions to `ask`, preserve strong and typed confirmation for modifying and
+dangerous commands, and disable automatic tool continuation. Trusted roots use
+the selected profile but never gain silent write execution.
+
+The command palette dispatches existing pane and settings actions. It adds no
+execution backend and persists no new state.
+
 ## Future Pane Types
 
 - `SshPane`: explicitly configured remote terminal sessions
@@ -322,9 +354,9 @@ badges, a structured diff editor, agent-assisted diff review, and an explicit
 patch workflow. Push, pull, credentials, and destructive history operations
 require separate lifecycle and approval designs.
 
-A future agent tool loop may propose read operations, command cards, and unified
-patches, but execution and patch application require explicit preview and user
-approval. Codex can later serve as an optional heavier worker after local-model
+Future agent work may propose command cards and unified patches, but execution
+and patch application require explicit preview and user approval. Codex can
+later serve as an optional heavier worker after local-model
 routing, cost boundaries, context disclosure, and approval UX are defined.
 Escalation is deferred because v0 must first establish predictable local
 context handling and error behavior. File modifications are not automatic

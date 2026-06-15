@@ -1,6 +1,7 @@
 import {
   readDirectory,
   readWorkspaceTextFile,
+  searchWorkspace,
 } from "../../api/fileApi";
 import { getGitFileDiff, getGitStatus } from "../../api/gitApi";
 import { redactSecrets, stripAnsi } from "../redaction";
@@ -14,7 +15,6 @@ import type {
 const MAX_FILE_CHARS = 50_000;
 const MAX_TOTAL_CHARS = 120_000;
 const MAX_LIST_FILES = 500;
-const MAX_SEARCH_FILES = 200;
 
 function textArg(args: Record<string, unknown>, name: string): string {
   const value = args[name];
@@ -86,7 +86,14 @@ async function readFiles(
 async function execute(
   request: ToolRequest,
   context: ToolRuntimeContext,
-): Promise<{ output: string; summary: string; paths: string[] }> {
+): Promise<{
+  output: string;
+  summary: string;
+  paths: string[];
+  resultCount?: number;
+  truncated?: boolean;
+  backend?: "ripgrep" | "fallback";
+}> {
   const root = context.workspaceRoot;
   if (request.tool === "read_file") {
     const path = textArg(request.args, "path");
@@ -118,28 +125,36 @@ async function execute(
       throw new Error("Open a workspace before searching files.");
     }
     const query = textArg(request.args, "query");
-    const files = (await listWorkspaceFiles(root)).slice(0, MAX_SEARCH_FILES);
-    const matches: string[] = [];
-    for (const path of files) {
-      if (matches.join("\n").length >= MAX_TOTAL_CHARS) {
-        break;
-      }
-      try {
-        resolveToolPath(root, path);
-        const content = await readWorkspaceTextFile(root, path);
-        content.split(/\r?\n/).forEach((line, index) => {
-          if (line.includes(query) && matches.length < 500) {
-            matches.push(`${path}:${index + 1}: ${line}`);
-          }
-        });
-      } catch {
-        // Binary, oversized, and unreadable files are intentionally skipped.
-      }
-    }
+    const contextLines =
+      typeof request.args.contextLines === "number"
+        ? request.args.contextLines
+        : undefined;
+    const pathFilter =
+      typeof request.args.pathFilter === "string"
+        ? request.args.pathFilter
+        : undefined;
+    const extensions = Array.isArray(request.args.extensions)
+      ? request.args.extensions.filter(
+          (extension): extension is string => typeof extension === "string",
+        )
+      : undefined;
+    const result = await searchWorkspace(root, query, {
+      maxResults: 500,
+      maxOutputBytes: MAX_TOTAL_CHARS,
+      contextLines,
+      pathFilter,
+      extensions,
+    });
+    const output = JSON.stringify(result, null, 2);
     return {
-      output: matches.join("\n") || "[no matches]",
-      summary: `Search found ${matches.length} matches`,
-      paths: [...new Set(matches.map((line) => line.split(":", 1)[0]))],
+      output,
+      summary: `Search found ${result.matches.length} matches · ${result.backend}${
+        result.truncated ? " · truncated" : ""
+      }`,
+      paths: [...new Set(result.matches.map((match) => match.path))],
+      resultCount: result.matches.length,
+      truncated: result.truncated,
+      backend: result.backend,
     };
   }
   if (request.tool === "get_git_status") {
@@ -203,6 +218,9 @@ export async function runReadOnlyTool(
       summary: result.summary,
       bytes: output.length,
       paths: result.paths,
+      resultCount: result.resultCount,
+      truncated: result.truncated,
+      backend: result.backend,
       createdAt: new Date().toISOString(),
     };
   } catch (reason) {

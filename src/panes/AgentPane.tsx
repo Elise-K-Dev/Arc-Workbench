@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   buildAgentContext,
-  SYSTEM_PROMPT,
+  buildSystemPrompt,
   type AgentContextSelection,
 } from "../agent/contextBuilder";
 import {
@@ -73,11 +73,17 @@ import {
   addAgentActivity,
   upsertArtifactActivity,
 } from "../agent/activity/activityStore";
+import { canContinueToolLoop } from "../agent/tools/toolLoop";
+import {
+  applyWorkspaceTrust,
+  type WorkspaceTrustLevel,
+} from "../workspace/workspaceTrust";
 
 type Props = {
   pane: AgentFloatingPane;
   panes: FloatingPaneState[];
   rootPath?: string;
+  workspaceTrust: WorkspaceTrustLevel;
   onUpdate: (
     id: string,
     update: Partial<AgentFloatingPane["payload"]>,
@@ -185,6 +191,7 @@ export function AgentPane({
   pane,
   panes,
   rootPath,
+  workspaceTrust,
   onUpdate,
   onPreviewPatch,
   onOpenFile,
@@ -202,6 +209,8 @@ export function AgentPane({
   const [permissions, setPermissions] = useState<AgentPermissionSettings>(
     loadPermissionSettings,
   );
+  const toolLoopTurnsRef = useRef(new Map<string, number>());
+  const stoppedToolLoopsRef = useRef(new Set<string>());
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeStreamIdRef = useRef<string | undefined>(undefined);
   const streamMessageIdRef = useRef<string | undefined>(undefined);
@@ -220,8 +229,13 @@ export function AgentPane({
     ready: terminalRuntime.some(
       (runtime) => runtime.paneId === terminal.id && !!runtime.sessionId,
     ),
+    cwd: terminalRuntime.find((runtime) => runtime.paneId === terminal.id)?.cwd,
   }));
   const defaultTerminalId = terminalPanes[0]?.id;
+  const effectivePermissions = applyWorkspaceTrust(
+    permissions,
+    workspaceTrust,
+  );
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "nearest" });
@@ -272,7 +286,7 @@ export function AgentPane({
     taskId: string,
     messageId: string,
     request: ToolRequest,
-  ) => {
+  ): Promise<ToolResult> => {
     upsertArtifactActivity(request.id, {
       taskId,
       kind: "tool_request",
@@ -280,7 +294,14 @@ export function AgentPane({
       title: `Reading · ${request.tool}`,
       summary: "Workspace-bounded read-only tool",
     });
-    const result = await runReadOnlyTool(request, toolContext());
+    let result = await runReadOnlyTool(request, toolContext());
+    const completedTurns = toolLoopTurnsRef.current.get(taskId) ?? 0;
+    const autoSend =
+      result.status === "completed" &&
+      effectivePermissions.readTools === "auto_allow" &&
+      !stoppedToolLoopsRef.current.has(taskId) &&
+      canContinueToolLoop(pane.payload.toolLoop, completedTurns, request.tool);
+    result = { ...result, delivery: autoSend ? "auto_sent" : "waiting" };
     setMessages((current) =>
       current.map((message) =>
         message.id === messageId
@@ -301,15 +322,28 @@ export function AgentPane({
         result.status === "completed"
           ? `Read tool completed · ${request.tool}`
           : `Read tool failed · ${request.tool}`,
-      summary: result.summary,
+      summary: `${result.summary} · ${
+        autoSend ? "auto-sent" : "waiting for user"
+      }`,
+      metadata: {
+        tool: request.tool,
+        bytes: result.bytes,
+        resultCount: result.resultCount,
+        truncated: result.truncated,
+        delivery: result.delivery,
+      },
     });
-    if (permissions.autoSendToolResults && result.status === "completed") {
+    if (result.status !== "completed") {
+      stoppedToolLoopsRef.current.add(taskId);
+    } else if (autoSend) {
+      toolLoopTurnsRef.current.set(taskId, completedTurns + 1);
       window.setTimeout(() => {
         void sendToolResult(taskId, request, result).catch((reason) =>
           setError(String(reason)),
         );
       }, 0);
     }
+    return result;
   };
 
   const attachResponseArtifacts = async (
@@ -368,10 +402,10 @@ export function AgentPane({
           : message,
       ),
     );
-    if (permissions.readTools === "auto_allow") {
-      await Promise.all(
-        tools.map(({ request }) => runTool(taskId, messageId, request)),
-      );
+    if (effectivePermissions.readTools === "auto_allow") {
+      for (const { request } of tools) {
+        await runTool(taskId, messageId, request);
+      }
     }
   };
 
@@ -420,6 +454,10 @@ export function AgentPane({
     if (!task) {
       throw new Error("The originating Agent task is no longer available.");
     }
+    if (!sourceTaskId) {
+      toolLoopTurnsRef.current.set(task.id, 0);
+      stoppedToolLoopsRef.current.delete(task.id);
+    }
     const userMessage: ChatMessage = {
       id: userMessageId,
       role: "user",
@@ -459,7 +497,10 @@ export function AgentPane({
         temperature: pane.payload.temperature,
         maxTokens: pane.payload.maxTokens,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "system",
+            content: buildSystemPrompt(pane.payload.toolLoop.maxTurns),
+          },
           ...messages.map(({ role, content }) => ({ role, content })),
           { role: "user", content: composed },
         ],
@@ -726,6 +767,48 @@ Continue the analysis based on this result.`;
     savePermissionSettings(next);
   };
 
+  useEffect(() => {
+    const togglePermissions = () => {
+      changePermissionProfile(
+        permissions.profile === "strict" ? "balanced" : "strict",
+      );
+    };
+    const toggleToolLoop = () =>
+      onUpdate(pane.id, {
+        toolLoop: {
+          ...pane.payload.toolLoop,
+          enabled: !pane.payload.toolLoop.enabled,
+        },
+      });
+    const searchWorkspace = () => setInput("Search the workspace for ");
+    const prepareCodexHandoff = () => {
+      const task = [...tasks].reverse().find((candidate) => candidate.status !== "closed");
+      if (!task) {
+        setError("Start an Agent task before preparing a Codex handoff.");
+        return;
+      }
+      void copyCodexHandoff(task.id)
+        .then(() => setError("Codex handoff copied to clipboard."))
+        .catch((reason) => setError(String(reason)));
+    };
+    window.addEventListener("arc-toggle-agent-permissions", togglePermissions);
+    window.addEventListener("arc-toggle-agent-tool-loop", toggleToolLoop);
+    window.addEventListener("arc-search-workspace", searchWorkspace);
+    window.addEventListener("arc-prepare-codex-handoff", prepareCodexHandoff);
+    return () => {
+      window.removeEventListener(
+        "arc-toggle-agent-permissions",
+        togglePermissions,
+      );
+      window.removeEventListener("arc-toggle-agent-tool-loop", toggleToolLoop);
+      window.removeEventListener("arc-search-workspace", searchWorkspace);
+      window.removeEventListener(
+        "arc-prepare-codex-handoff",
+        prepareCodexHandoff,
+      );
+    };
+  });
+
   return (
     <div className="agent-pane">
       <div className="agent-settings">
@@ -847,22 +930,57 @@ Continue the analysis based on this result.`;
         </label>
         <label>
           <input
-            aria-label="Auto-send tool results"
+            aria-label="Read-only tool loop"
             type="checkbox"
-            checked={permissions.autoSendToolResults}
+            checked={pane.payload.toolLoop.enabled}
+            disabled={workspaceTrust === "untrusted"}
             onChange={(event) => {
-              const next = {
-                ...permissions,
-                profile: "custom" as const,
-                autoSendToolResults: event.target.checked,
-              };
-              setPermissions(next);
-              savePermissionSettings(next);
+              onUpdate(pane.id, {
+                toolLoop: {
+                  ...pane.payload.toolLoop,
+                  enabled: event.target.checked,
+                },
+              });
             }}
           />
-          Auto-send tool results
+          Read-only tool loop
         </label>
-        <span>Read tools: {permissions.readTools.replaceAll("_", " ")}</span>
+        <label>
+          <span>Max tool turns</span>
+          <select
+            aria-label="Max tool turns"
+            value={pane.payload.toolLoop.maxTurns}
+            onChange={(event) =>
+              onUpdate(pane.id, {
+                toolLoop: {
+                  ...pane.payload.toolLoop,
+                  maxTurns: Number(event.target.value),
+                },
+              })
+            }
+          >
+            <option value="1">1</option>
+            <option value="3">3</option>
+            <option value="5">5</option>
+          </select>
+        </label>
+        {pane.payload.toolLoop.enabled && (
+          <button
+            type="button"
+            onClick={() => {
+              for (const task of tasks) {
+                stoppedToolLoopsRef.current.add(task.id);
+              }
+              setError("Read-only tool loop stopped.");
+            }}
+          >
+            Stop Tool Loop
+          </button>
+        )}
+        <span>
+          Workspace: {workspaceTrust} · Read tools:{" "}
+          {effectivePermissions.readTools.replaceAll("_", " ")}
+        </span>
       </div>
       <div className="agent-chat" aria-label="Agent chat history">
         {tasks.filter((task) => task.status !== "closed").length === 0 && (
@@ -962,7 +1080,7 @@ Continue the analysis based on this result.`;
                           proposal={proposal}
                           taskId={task.id}
                           workspaceRoot={rootPath}
-                          permissions={permissions}
+                          permissions={effectivePermissions}
                           sourceAgentMessageId={message.id}
                           terminals={terminalOptions}
                           defaultTerminalId={defaultTerminalId}
@@ -979,10 +1097,10 @@ Continue the analysis based on this result.`;
                           taskId={task.id}
                           request={request}
                           result={result}
-                          permission={permissions.readTools}
-                          onRun={(toolRequest) =>
-                            runTool(task.id, message.id, toolRequest)
-                          }
+                          permission={effectivePermissions.readTools}
+                          onRun={async (toolRequest) => {
+                            await runTool(task.id, message.id, toolRequest);
+                          }}
                           onSendResult={(toolRequest, toolResult) =>
                             sendToolResult(task.id, toolRequest, toolResult)
                           }

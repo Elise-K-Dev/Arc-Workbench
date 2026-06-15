@@ -15,6 +15,7 @@ export type TerminalRuntimeEntry = {
   output: string;
   outputBaseOffset: number;
   outputEndOffset: number;
+  cwd?: string;
 };
 
 const MAX_OUTPUT_CHARS = 50_000;
@@ -43,6 +44,8 @@ export type TerminalCommandRun = {
   shellHint?: ShellHint;
   runLocation: CommandRunLocation;
   workspaceRoot?: string;
+  cwdBefore?: string;
+  cwdAfter?: string;
   source?: {
     agentMessageId?: string;
     proposalId?: string;
@@ -88,6 +91,7 @@ export function registerTerminalSession(paneId: string, sessionId: string) {
     output: current?.output ?? "",
     outputBaseOffset: current?.outputBaseOffset ?? 0,
     outputEndOffset: current?.outputEndOffset ?? 0,
+    cwd: current?.cwd,
   });
   for (const waiter of sessionWaiters.get(paneId) ?? []) {
     waiter(sessionId);
@@ -121,12 +125,24 @@ function parseCommandMarkers(paneId: string) {
     return;
   }
   for (const [runId, run] of commandRuns) {
-    if (
-      run.terminalPaneId !== paneId ||
-      run.completedAt
-    ) {
+    if (run.terminalPaneId !== paneId) {
       continue;
     }
+    const cwdBefore = findCwdMarker(terminal.output, "BEFORE", runId);
+    if (cwdBefore && cwdBefore !== run.cwdBefore) {
+      commandRuns.set(runId, { ...run, cwdBefore });
+      entries.set(paneId, { ...terminal, cwd: cwdBefore });
+    }
+    const cwdAfter = findCwdMarker(terminal.output, "AFTER", runId);
+    if (cwdAfter) {
+      entries.set(paneId, { ...terminal, cwd: cwdAfter });
+      const latest = commandRuns.get(runId)!;
+      commandRuns.set(runId, { ...latest, cwdAfter });
+    }
+    if (run.completedAt) {
+      continue;
+    }
+    const currentBeforeStart = commandRuns.get(runId)!;
     const startPattern = new RegExp(
       `(?:^|\\r?\\n)__ARC_CMD_START:${escapeRegExp(runId)}__(?:\\r?\\n|$)`,
     );
@@ -138,7 +154,7 @@ function parseCommandMarkers(paneId: string) {
         startMatch[0].length;
       if (run.outputStartOffset !== markerOffset) {
         commandRuns.set(runId, {
-          ...run,
+          ...currentBeforeStart,
           outputStartOffset: markerOffset,
           status: "running",
         });
@@ -183,6 +199,17 @@ function parseCommandMarkers(paneId: string) {
       }
     }
   }
+}
+
+function findCwdMarker(
+  output: string,
+  phase: "BEFORE" | "AFTER",
+  runId: string,
+): string | undefined {
+  const pattern = new RegExp(
+    `__ARC_CWD_${phase}:${escapeRegExp(runId)}:([^\\r\\n]*?)__`,
+  );
+  return pattern.exec(output)?.[1]?.trim() || undefined;
 }
 
 function escapeRegExp(value: string) {
@@ -275,6 +302,13 @@ export function getTerminalOutputSinceRun(
     .replace(
       new RegExp(
         `(?:^|\\r?\\n)__ARC_CMD_(?:START:${escapeRegExp(run.id)}|END:${escapeRegExp(run.id)}:-?\\d+)__(?:\\r?\\n|$)`,
+        "g",
+      ),
+      "\n",
+    )
+    .replace(
+      new RegExp(
+        `(?:^|\\r?\\n)__ARC_CWD_(?:BEFORE|AFTER):${escapeRegExp(run.id)}:[^\\r\\n]*?__(?:\\r?\\n|$)`,
         "g",
       ),
       "\n",

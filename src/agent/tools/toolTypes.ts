@@ -24,6 +24,10 @@ export type ToolResult = {
   summary: string;
   bytes: number;
   paths: string[];
+  resultCount?: number;
+  truncated?: boolean;
+  backend?: "ripgrep" | "fallback";
+  delivery?: "auto_sent" | "waiting";
   createdAt: string;
 };
 

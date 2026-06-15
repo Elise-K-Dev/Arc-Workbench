@@ -7,7 +7,7 @@ mod terminal;
 
 use agent::commands::{agent_cancel_stream, agent_chat, agent_chat_stream};
 use files::commands::{
-    read_dir, read_text_file, read_workspace_text_file, write_text_file,
+    read_dir, read_text_file, read_workspace_text_file, search_workspace, write_text_file,
 };
 use git::commands::{git_diff_file, git_repo_info, git_status};
 use patch::commands::{
@@ -30,6 +30,7 @@ pub fn run() {
             terminal_kill,
             read_text_file,
             read_workspace_text_file,
+            search_workspace,
             write_text_file,
             read_dir,
             git_repo_info,

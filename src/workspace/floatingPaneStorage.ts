@@ -75,7 +75,10 @@ function isFloatingPane(value: unknown): value is FloatingPaneState {
       (payload.streaming === undefined ||
         typeof payload.streaming === "boolean") &&
       (payload.showCodexRouterSuggestions === undefined ||
-        typeof payload.showCodexRouterSuggestions === "boolean")
+        typeof payload.showCodexRouterSuggestions === "boolean") &&
+      (payload.toolLoop === undefined ||
+        (typeof payload.toolLoop === "object" &&
+          payload.toolLoop !== null))
     );
   }
 
@@ -107,6 +110,10 @@ export function loadFloatingPanes(): FloatingPaneState[] | undefined {
             streaming: pane.payload.streaming ?? true,
             showCodexRouterSuggestions:
               pane.payload.showCodexRouterSuggestions ?? true,
+            toolLoop: pane.payload.toolLoop ?? {
+              enabled: false,
+              maxTurns: 3,
+            },
           },
         };
       }

@@ -35,6 +35,39 @@ export function readWorkspaceTextFile(
   });
 }
 
+export type WorkspaceSearchMatch = {
+  path: string;
+  line: number;
+  column?: number;
+  text: string;
+  before: string[];
+  after: string[];
+};
+
+export type WorkspaceSearchResult = {
+  query: string;
+  matches: WorkspaceSearchMatch[];
+  truncated: boolean;
+  backend: "ripgrep" | "fallback";
+  error?: string;
+};
+
+export type WorkspaceSearchOptions = {
+  maxResults?: number;
+  maxOutputBytes?: number;
+  contextLines?: number;
+  pathFilter?: string;
+  extensions?: string[];
+};
+
+export function searchWorkspace(
+  rootPath: string,
+  query: string,
+  options?: WorkspaceSearchOptions,
+): Promise<WorkspaceSearchResult> {
+  return invoke("search_workspace", { rootPath, query, options });
+}
+
 export function writeTextFile(path: string, content: string): Promise<void> {
   return invoke("write_text_file", { path, content });
 }

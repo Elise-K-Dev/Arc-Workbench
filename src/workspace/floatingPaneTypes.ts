@@ -73,6 +73,7 @@ export type AgentFloatingPane = BaseFloatingPane & {
     maxTokens: number;
     streaming: boolean;
     showCodexRouterSuggestions: boolean;
+    toolLoop: import("../agent/tools/toolLoop").AgentToolLoopSettings;
   };
 };
 

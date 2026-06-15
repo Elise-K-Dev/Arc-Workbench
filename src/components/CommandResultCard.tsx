@@ -94,6 +94,17 @@ export function CommandResultCard({
       ]
         .filter(Boolean)
         .join(" · "),
+      metadata: {
+        terminal: terminalTitle,
+        cwd: liveRun.cwdBefore,
+        cwdAfter: liveRun.cwdAfter,
+        workspaceRoot: liveRun.workspaceRoot,
+        runLocation: liveRun.runLocation,
+        exitCode: liveRun.exitCode,
+        duration,
+        outputBytes: capture.rawLength,
+        truncated: capture.truncated,
+      },
     });
   }, [
     capture.rawLength,
@@ -143,6 +154,8 @@ export function CommandResultCard({
     liveRun.command,
     capture.output,
     liveRun.runLocation,
+    liveRun.cwdBefore,
+    liveRun.workspaceRoot,
   );
 
   return (
@@ -179,10 +192,14 @@ export function CommandResultCard({
         </div>
         <pre>{liveRun.command}</pre>
         <div className="command-result__meta">
-          Run from:{" "}
+          Terminal: {terminalTitle}
+          {" · "}Terminal cwd: {liveRun.cwdBefore ?? "unknown"}
+          {" · "}Workspace root: {liveRun.workspaceRoot ?? "none"}
+          {" · "}Run from:{" "}
           {liveRun.runLocation === "workspace_root"
             ? liveRun.workspaceRoot ?? "workspace root"
             : "terminal cwd"}
+          {liveRun.cwdAfter ? ` · Cwd after: ${liveRun.cwdAfter}` : ""}
           {" · "}Risk: {analysis.risk} / {analysis.category}
           {" · "}Captured: {formatSize(capture.rawLength)}
           {capture.truncated ? " (truncated)" : ""}
