@@ -1,4 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  setActivityCollapsed,
+  upsertArtifactActivity,
+  useAgentActivities,
+} from "../agent/activity/activityStore";
+import type { CommandRiskAnalysis } from "../commands/commandRiskTypes";
+import { detectCwdMismatch } from "../commands/detectCwdMismatch";
 import {
   captureTerminalCommandRun,
   getTerminalOutputSinceRun,
@@ -7,9 +14,11 @@ import {
   type TerminalOutputCapture,
   useTerminalCommandRun,
 } from "../terminal/terminalRuntime";
+import { AgentActivityRow } from "./AgentActivityRow";
 
 type Props = {
   run: TerminalCommandRun;
+  analysis: CommandRiskAnalysis;
   terminalTitle: string;
   onSendToAgent: (
     run: TerminalCommandRun,
@@ -26,16 +35,76 @@ function formatSize(length: number): string {
 
 export function CommandResultCard({
   run,
+  analysis,
   terminalTitle,
   onSendToAgent,
   onOpenTerminal,
 }: Props) {
   const liveRun = useTerminalCommandRun(run.id);
+  const activities = useAgentActivities();
+  const activity = activities.find(
+    (candidate) => candidate.artifactId === run.id,
+  );
   const [capture, setCapture] = useState<TerminalOutputCapture>(() =>
     getTerminalOutputSinceRun(run.id),
   );
   const [status, setStatus] = useState<string>();
   const [sending, setSending] = useState(false);
+  const completionStatus =
+    liveRun.completionStatus ??
+    (liveRun.status === "completed" || liveRun.status === "failed"
+      ? liveRun.status
+      : liveRun.status === "pending" || liveRun.status === "running"
+        ? liveRun.status
+        : "running");
+  const duration =
+    liveRun.completedAt === undefined
+      ? undefined
+      : Math.max(
+          0,
+          (new Date(liveRun.completedAt).getTime() -
+            new Date(liveRun.startedAt).getTime()) /
+            1000,
+        );
+
+  useEffect(() => {
+    upsertArtifactActivity(run.id, {
+      taskId: liveRun.source?.taskId ?? "",
+      kind: "command_result",
+      status:
+        completionStatus === "failed"
+          ? "failed"
+          : completionStatus === "completed"
+            ? "completed"
+            : "running",
+      title:
+        completionStatus === "failed"
+          ? "Command failed"
+          : completionStatus === "completed"
+            ? "Command completed"
+            : "Command running",
+      summary: [
+        liveRun.exitCode === undefined ? undefined : `exit ${liveRun.exitCode}`,
+        duration === undefined ? undefined : `${duration.toFixed(1)}s`,
+        formatSize(capture.rawLength),
+        terminalTitle,
+        liveRun.runLocation === "workspace_root"
+          ? "workspace root"
+          : "terminal cwd",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }, [
+    capture.rawLength,
+    completionStatus,
+    duration,
+    liveRun.exitCode,
+    liveRun.runLocation,
+    liveRun.source?.taskId,
+    run.id,
+    terminalTitle,
+  ]);
 
   const refresh = () => {
     captureTerminalCommandRun(run.id);
@@ -47,12 +116,8 @@ export function CommandResultCard({
 
   const copy = async () => {
     const next = refresh();
-    try {
-      await navigator.clipboard.writeText(next.output);
-      setStatus("Captured output copied.");
-    } catch (reason) {
-      setStatus(`Could not copy output. ${String(reason)}`);
-    }
+    await navigator.clipboard.writeText(next.output);
+    setStatus("Captured output copied.");
   };
 
   const send = async () => {
@@ -70,62 +135,72 @@ export function CommandResultCard({
     }
   };
 
-  const completionStatus =
-    liveRun.completionStatus ??
-    (liveRun.status === "completed" || liveRun.status === "failed"
-      ? liveRun.status
-      : liveRun.status === "pending" || liveRun.status === "running"
-        ? liveRun.status
-        : "unknown");
-  const duration =
-    liveRun.completedAt === undefined
-      ? undefined
-      : Math.max(
-          0,
-          (new Date(liveRun.completedAt).getTime() -
-            new Date(liveRun.startedAt).getTime()) /
-            1000,
-        );
+  if (!activity) {
+    return null;
+  }
+
+  const cwdMismatch = detectCwdMismatch(
+    liveRun.command,
+    capture.output,
+    liveRun.runLocation,
+  );
 
   return (
-    <div
-      className={`command-result command-result--${completionStatus}`}
-      data-task-id={liveRun.source?.taskId}
+    <AgentActivityRow
+      activity={activity}
+      onToggle={setActivityCollapsed}
+      actions={
+        <>
+          <button type="button" disabled={sending} onClick={() => void send()}>
+            Send Output to Agent
+          </button>
+          <button type="button" onClick={() => void copy()}>
+            Copy Output
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenTerminal(run.terminalPaneId)}
+          >
+            Open Terminal
+          </button>
+        </>
+      }
     >
-      <div className="command-result__header">
-        <strong>Command result</strong>
-        <span className="command-result__state">{completionStatus}</span>
-        {liveRun.exitCode !== undefined && (
-          <span>exit {liveRun.exitCode}</span>
+      <div
+        className={`command-result command-result--${completionStatus}`}
+        data-task-id={liveRun.source?.taskId}
+      >
+        <div className="command-result__header">
+          <strong>Command result</strong>
+          <span className="command-result__state">{completionStatus}</span>
+          {liveRun.exitCode !== undefined && <span>exit {liveRun.exitCode}</span>}
+          {duration !== undefined && <span>{duration.toFixed(1)}s</span>}
+          <span>{terminalTitle}</span>
+        </div>
+        <pre>{liveRun.command}</pre>
+        <div className="command-result__meta">
+          Run from:{" "}
+          {liveRun.runLocation === "workspace_root"
+            ? liveRun.workspaceRoot ?? "workspace root"
+            : "terminal cwd"}
+          {" · "}Risk: {analysis.risk} / {analysis.category}
+          {" · "}Captured: {formatSize(capture.rawLength)}
+          {capture.truncated ? " (truncated)" : ""}
+        </div>
+        <pre className="command-result__output">{capture.output}</pre>
+        {cwdMismatch && (
+          <div className="command-result__cwd-hint">
+            This command may have been run outside the workspace root. Try
+            running it from the workspace root.
+          </div>
         )}
-        {duration !== undefined && <span>{duration.toFixed(1)}s</span>}
-        <span>{terminalTitle}</span>
-        <span>{new Date(liveRun.startedAt).toLocaleTimeString()}</span>
+        <div className="command-result__controls">
+          <button type="button" onClick={refresh}>
+            Capture Output
+          </button>
+        </div>
+        {status && <div className="command-result__status">{status}</div>}
       </div>
-      <pre>{liveRun.command}</pre>
-      <div className="command-result__meta">
-        Captured: {formatSize(capture.rawLength)}
-        {capture.truncated ? " (truncated)" : ""}
-      </div>
-      <pre className="command-result__output">{capture.output}</pre>
-      <div className="command-result__controls">
-        <button type="button" onClick={refresh}>
-          Capture Output
-        </button>
-        <button type="button" disabled={sending} onClick={() => void send()}>
-          Send Output to Agent
-        </button>
-        <button type="button" onClick={() => void copy()}>
-          Copy Output
-        </button>
-        <button
-          type="button"
-          onClick={() => onOpenTerminal(run.terminalPaneId)}
-        >
-          Open Terminal
-        </button>
-      </div>
-      {status && <div className="command-result__status">{status}</div>}
-    </div>
+    </AgentActivityRow>
   );
 }

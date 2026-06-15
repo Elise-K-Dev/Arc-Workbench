@@ -6,3 +6,28 @@ playwright-report/
 .idea/
 .vscode/
 *.log
+
+# dependencies
+node_modules/
+
+# frontend build
+dist/
+
+# Rust / Tauri build
+target/
+src-tauri/target/
+
+# env / logs
+.env
+.env.*
+*.log
+
+# release artifacts
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.dmg
+
+# local scratch
+qwen-polish-context.txt

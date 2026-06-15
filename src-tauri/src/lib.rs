@@ -6,7 +6,9 @@ mod state;
 mod terminal;
 
 use agent::commands::{agent_cancel_stream, agent_chat, agent_chat_stream};
-use files::commands::{read_dir, read_text_file, write_text_file};
+use files::commands::{
+    read_dir, read_text_file, read_workspace_text_file, write_text_file,
+};
 use git::commands::{git_diff_file, git_repo_info, git_status};
 use patch::commands::{
     patch_apply_with_snapshot, patch_check, patch_create_snapshot, patch_invalidate_snapshot,
@@ -27,6 +29,7 @@ pub fn run() {
             terminal_resize,
             terminal_kill,
             read_text_file,
+            read_workspace_text_file,
             write_text_file,
             read_dir,
             git_repo_info,

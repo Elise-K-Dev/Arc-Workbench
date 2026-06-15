@@ -696,7 +696,7 @@ body.is-dragging-pane .patch-preview-pane {
 
 .agent-pane {
   display: grid;
-  grid-template-rows: 46px 25px minmax(0, 1fr) 70px;
+  grid-template-rows: 46px 25px 25px minmax(0, 1fr) 70px;
   width: 100%;
   height: 100%;
   color: #c4c8cf;
@@ -706,7 +706,7 @@ body.is-dragging-pane .patch-preview-pane {
 .agent-settings {
   display: grid;
   grid-template-columns:
-    minmax(150px, 1.4fr) minmax(115px, 1fr) 64px 76px 58px;
+    minmax(140px, 1.4fr) minmax(105px, 1fr) 58px 68px 54px 72px;
   gap: 4px;
   min-width: 0;
   padding: 3px 4px;
@@ -780,6 +780,39 @@ body.is-dragging-pane .patch-preview-pane {
   border-color: #52627b;
   color: #cbd5e5;
   background: #27303c;
+}
+
+.agent-permissions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border-bottom: 1px solid #252931;
+  color: #7f8997;
+  background: #101318;
+  font-size: 8px;
+}
+
+.agent-permissions label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-permissions select {
+  height: 18px;
+  border: 1px solid #303640;
+  color: #adb5c1;
+  background: #171b21;
+  font-size: 8px;
+}
+
+.agent-permissions input {
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  accent-color: #62789a;
 }
 
 .agent-chat {
@@ -894,6 +927,89 @@ body.is-dragging-pane .patch-preview-pane {
   margin-bottom: 0;
 }
 
+.codex-router-card {
+  margin-bottom: 6px;
+  padding: 6px;
+  border: 1px solid #3a4556;
+  border-radius: 3px;
+  color: #b7bec9;
+  background: #151a21;
+  font-size: 9px;
+}
+
+.codex-router-card--codex {
+  border-color: #596c8a;
+  background: #18202b;
+}
+
+.codex-router-card--manual {
+  border-color: #725844;
+  background: #211b17;
+}
+
+.codex-router-card__header,
+.codex-router-card__metrics,
+.codex-router-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.codex-router-card__header {
+  justify-content: space-between;
+}
+
+.codex-router-card__header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.codex-router-card__header strong {
+  color: #d1d8e3;
+  font-size: 10px;
+}
+
+.codex-router-card__header span,
+.codex-router-card__metrics {
+  color: #8490a0;
+  font: 8px/13px monospace;
+}
+
+.codex-router-card__metrics {
+  margin-top: 5px;
+  text-transform: uppercase;
+}
+
+.codex-router-card ul {
+  margin: 5px 0;
+  padding-left: 16px;
+}
+
+.codex-router-card li {
+  margin: 2px 0;
+}
+
+.codex-router-card p {
+  margin: 5px 0;
+  color: #9fa9b7;
+}
+
+.codex-router-card__actions {
+  flex-wrap: wrap;
+}
+
+.codex-router-card__actions button {
+  height: 18px;
+  padding: 0 5px;
+  font-size: 8px;
+}
+
+.codex-router-card__status {
+  margin-top: 4px;
+  color: #91ad95;
+  font-size: 8px;
+}
+
 .agent-message {
   margin: 0 0 6px;
   padding: 5px 7px;
@@ -926,6 +1042,94 @@ body.is-dragging-pane .patch-preview-pane {
   font: 10px/15px monospace;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.agent-activity {
+  margin: 4px 0;
+  border: 1px solid #2d333d;
+  border-radius: 3px;
+  background: #101419;
+}
+
+.agent-activity--failed {
+  border-color: #6d4249;
+}
+
+.agent-activity--completed {
+  border-color: #3d5946;
+}
+
+.agent-activity__row {
+  display: flex;
+  min-height: 23px;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px;
+}
+
+.agent-activity__toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  color: #adb5c1;
+  background: transparent;
+  text-align: left;
+}
+
+.agent-activity__toggle > span {
+  width: 10px;
+  color: #8290a4;
+  text-align: center;
+}
+
+.agent-activity__toggle strong {
+  flex: none;
+  font-size: 9px;
+}
+
+.agent-activity__toggle small {
+  min-width: 0;
+  overflow: hidden;
+  color: #737e8c;
+  font: 8px monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-activity__actions {
+  display: flex;
+  flex: none;
+  gap: 3px;
+}
+
+.agent-activity__actions button {
+  height: 17px;
+  padding: 0 4px;
+  font-size: 8px;
+}
+
+.agent-activity__details {
+  padding: 4px;
+  border-top: 1px solid #292f38;
+}
+
+.tool-request-card__request,
+.tool-request-card__result {
+  max-height: 220px;
+  margin: 0 0 4px;
+  overflow: auto;
+  color: #b8bec7;
+  font: 9px/14px monospace;
+  white-space: pre-wrap;
+}
+
+.tool-request-card__status {
+  color: #8fa791;
+  font-size: 8px;
 }
 
 .agent-loading,
@@ -1019,7 +1223,7 @@ body.is-dragging-pane .patch-preview-pane {
 }
 
 .command-proposal--high,
-.command-proposal--blocked {
+.command-proposal--critical {
   border-color: #6c4148;
   background: #1d1417;
 }
@@ -1056,7 +1260,7 @@ body.is-dragging-pane .patch-preview-pane {
 }
 
 .command-risk--high,
-.command-risk--blocked {
+.command-risk--critical {
   border-color: #7a4850;
   color: #db929b;
 }
@@ -1085,6 +1289,87 @@ body.is-dragging-pane .patch-preview-pane {
   margin-bottom: 4px;
   color: #8c9589;
   font-size: 8px;
+}
+
+.command-proposal__analysis,
+.command-proposal__permission {
+  padding: 4px 5px;
+  border-top: 1px solid #292f38;
+  color: #8993a1;
+  font-size: 8px;
+}
+
+.command-proposal__analysis strong {
+  color: #aeb7c4;
+}
+
+.command-proposal__analysis ul {
+  margin: 3px 0;
+  padding-left: 15px;
+}
+
+.command-proposal__permission {
+  color: #9ba8b9;
+}
+
+.command-confirm-overlay {
+  position: fixed;
+  z-index: 100000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 6, 9, 0.72);
+}
+
+.command-confirm-dialog {
+  width: min(520px, calc(100vw - 30px));
+  max-height: calc(100vh - 30px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #6b4d52;
+  border-radius: 4px;
+  color: #c5cad2;
+  background: #15181d;
+  box-shadow: 0 12px 40px #000;
+  font-size: 10px;
+}
+
+.command-confirm-dialog > strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #e0a2a9;
+  font-size: 11px;
+}
+
+.command-confirm-dialog pre {
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #343a44;
+  background: #0d0f13;
+  font: 9px/14px monospace;
+  white-space: pre-wrap;
+}
+
+.command-confirm-dialog label {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.command-confirm-dialog input {
+  height: 22px;
+  border: 1px solid #59444a;
+  color: #e3e6ea;
+  background: #0d0f13;
+  font: 10px monospace;
+}
+
+.command-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 9px;
 }
 
 .command-proposal__status {
@@ -1199,6 +1484,15 @@ body.is-dragging-pane .patch-preview-pane {
 .command-result__status {
   margin-top: 4px;
   color: #9aab96;
+}
+
+.command-result__cwd-hint {
+  margin: 4px 0;
+  padding: 4px 5px;
+  border: 1px solid #6a5b3d;
+  color: #d4bc80;
+  background: #211d15;
+  font-size: 9px;
 }
 
 .patch-preview-pane {

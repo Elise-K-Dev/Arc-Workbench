@@ -1,9 +1,10 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde::Serialize;
 
 const MAX_TEXT_FILE_SIZE: u64 = 5 * 1024 * 1024;
+const MAX_AGENT_TOOL_FILE_SIZE: u64 = 1024 * 1024;
 const IGNORED_DIRECTORIES: &[&str] = &[
     ".git",
     "node_modules",
@@ -32,6 +33,41 @@ pub fn read_text_file(path: String) -> Result<String, String> {
     }
 
     let bytes = fs::read(&path).map_err(|error| format!("failed to read {path}: {error}"))?;
+    if bytes.contains(&0) {
+        return Err("This file does not look like a text file.".to_string());
+    }
+    String::from_utf8(bytes).map_err(|_| "This file does not look like a text file.".to_string())
+}
+
+#[tauri::command]
+pub fn read_workspace_text_file(
+    root_path: String,
+    relative_path: String,
+) -> Result<String, String> {
+    let relative = Path::new(&relative_path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("Tool paths must stay inside the workspace root.".to_string());
+    }
+    let root = fs::canonicalize(&root_path)
+        .map_err(|error| format!("failed to resolve workspace root: {error}"))?;
+    if !root.is_dir() {
+        return Err("Workspace root is not a directory.".to_string());
+    }
+    let target = fs::canonicalize(root.join(relative))
+        .map_err(|error| format!("failed to resolve workspace file: {error}"))?;
+    if !target.starts_with(&root) || !target.is_file() {
+        return Err("Tool path escaped the workspace root.".to_string());
+    }
+    let metadata =
+        fs::metadata(&target).map_err(|error| format!("failed to inspect file: {error}"))?;
+    if metadata.len() > MAX_AGENT_TOOL_FILE_SIZE {
+        return Err("File is larger than the 1 MB Agent tool limit.".to_string());
+    }
+    let bytes = fs::read(&target).map_err(|error| format!("failed to read file: {error}"))?;
     if bytes.contains(&0) {
         return Err("This file does not look like a text file.".to_string());
     }
@@ -89,7 +125,7 @@ fn path_string(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::read_dir;
+    use super::{read_dir, read_workspace_text_file};
     use std::fs;
 
     #[test]
@@ -106,5 +142,56 @@ mod tests {
         assert_eq!(names, vec!["src", "a.txt", "z.txt"]);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_tool_read_rejects_traversal_and_reads_text() {
+        let root =
+            std::env::temp_dir().join(format!("arc-workbench-tool-read-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.ts"), "export const value = 42;").unwrap();
+
+        assert_eq!(
+            read_workspace_text_file(
+                root.to_string_lossy().into_owned(),
+                "src/main.ts".to_string()
+            )
+            .unwrap(),
+            "export const value = 42;"
+        );
+        assert!(read_workspace_text_file(
+            root.to_string_lossy().into_owned(),
+            "../secret.txt".to_string()
+        )
+        .is_err());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_tool_read_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "arc-workbench-tool-symlink-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let outside = std::env::temp_dir().join(format!(
+            "arc-workbench-tool-outside-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&outside, "secret").unwrap();
+        symlink(&outside, root.join("linked.txt")).unwrap();
+
+        assert!(read_workspace_text_file(
+            root.to_string_lossy().into_owned(),
+            "linked.txt".to_string()
+        )
+        .is_err());
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_file(outside).unwrap();
     }
 }

@@ -22,6 +22,7 @@ import {
   waitForTerminalSession,
 } from "../terminal/terminalRuntime";
 import type { CommandRisk, ShellHint } from "../commands/commandTypes";
+import type { CommandRunLocation } from "../commands/commandRiskTypes";
 import { wrapCommandForTracking } from "../commands/wrapCommandForTracking";
 import {
   checkPatchEligibility,
@@ -306,6 +307,7 @@ export function useFloatingPanes() {
       risk: CommandRisk,
       source?: TerminalCommandRun["source"],
       shellHint?: ShellHint,
+      runLocation: CommandRunLocation = "terminal_cwd",
     ) => {
       const sessionId = getTerminalRuntime(paneId)?.sessionId;
       if (!sessionId) {
@@ -317,15 +319,23 @@ export function useFloatingPanes() {
         risk,
         source,
         shellHint,
+        runLocation,
+        workspaceRoot: workspace.rootPath,
       });
       await writeTerminal(
         sessionId,
-        wrapCommandForTracking(run.id, command, shellHint),
+        wrapCommandForTracking(
+          run.id,
+          command,
+          shellHint,
+          runLocation,
+          workspace.rootPath,
+        ),
       );
       focusPane(paneId);
       return run;
     },
-    [],
+    [workspace.rootPath],
   );
 
   const runCommandInNewTerminal = useCallback(
@@ -334,6 +344,7 @@ export function useFloatingPanes() {
       risk: CommandRisk,
       source?: TerminalCommandRun["source"],
       shellHint?: ShellHint,
+      runLocation: CommandRunLocation = "terminal_cwd",
     ) => {
       const paneId = addTerminal();
       const sessionId = await waitForTerminalSession(paneId);
@@ -343,15 +354,23 @@ export function useFloatingPanes() {
         risk,
         source,
         shellHint,
+        runLocation,
+        workspaceRoot: workspace.rootPath,
       });
       await writeTerminal(
         sessionId,
-        wrapCommandForTracking(run.id, command, shellHint),
+        wrapCommandForTracking(
+          run.id,
+          command,
+          shellHint,
+          runLocation,
+          workspace.rootPath,
+        ),
       );
       focusPane(paneId);
       return run;
     },
-    [addTerminal],
+    [addTerminal, workspace.rootPath],
   );
 
   const addBrowser = useCallback(() => {

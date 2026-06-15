@@ -1,4 +1,11 @@
-export type CommandRisk = "low" | "medium" | "high" | "blocked";
+import type {
+  CommandRiskAnalysis,
+  CommandRiskLevel,
+  CommandRunLocation,
+} from "./commandRiskTypes";
+
+export type CommandRisk = CommandRiskLevel;
+export type { CommandRiskAnalysis, CommandRunLocation };
 
 export type ShellHint =
   | "bash"
@@ -15,4 +22,5 @@ export type CommandProposal = {
   shellHint?: ShellHint;
   risk: CommandRisk;
   reason?: string;
+  analysis: CommandRiskAnalysis;
 };

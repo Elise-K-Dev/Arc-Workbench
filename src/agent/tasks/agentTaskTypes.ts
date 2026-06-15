@@ -21,5 +21,5 @@ export type AgentTask = {
   patchIds: string[];
   commandProposalIds: string[];
   commandRunIds: string[];
+  routerDecisionIds: string[];
 };
-

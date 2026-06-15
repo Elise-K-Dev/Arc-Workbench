@@ -25,6 +25,16 @@ export function readTextFile(path: string): Promise<string> {
   return invoke<string>("read_text_file", { path });
 }
 
+export function readWorkspaceTextFile(
+  rootPath: string,
+  relativePath: string,
+): Promise<string> {
+  return invoke<string>("read_workspace_text_file", {
+    rootPath,
+    relativePath,
+  });
+}
+
 export function writeTextFile(path: string, content: string): Promise<void> {
   return invoke("write_text_file", { path, content });
 }

@@ -72,7 +72,10 @@ function isFloatingPane(value: unknown): value is FloatingPaneState {
       typeof payload.model === "string" &&
       typeof payload.temperature === "number" &&
       typeof payload.maxTokens === "number" &&
-      (payload.streaming === undefined || typeof payload.streaming === "boolean")
+      (payload.streaming === undefined ||
+        typeof payload.streaming === "boolean") &&
+      (payload.showCodexRouterSuggestions === undefined ||
+        typeof payload.showCodexRouterSuggestions === "boolean")
     );
   }
 
@@ -96,8 +99,16 @@ export function loadFloatingPanes(): FloatingPaneState[] | undefined {
       throw new Error("invalid floating pane layout");
     }
     return value.map((pane) => {
-      if (pane.kind === "agent" && pane.payload.streaming === undefined) {
-        return { ...pane, payload: { ...pane.payload, streaming: true } };
+      if (pane.kind === "agent") {
+        return {
+          ...pane,
+          payload: {
+            ...pane.payload,
+            streaming: pane.payload.streaming ?? true,
+            showCodexRouterSuggestions:
+              pane.payload.showCodexRouterSuggestions ?? true,
+          },
+        };
       }
       if (pane.kind === "browser" && /^browser(?:-\d+)?$/i.test(pane.title)) {
         return {

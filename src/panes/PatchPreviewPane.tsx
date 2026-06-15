@@ -4,6 +4,7 @@ import {
   getStoredPatchTaskId,
 } from "../patch/patchStore";
 import { setAgentTaskStatus } from "../agent/tasks/taskStore";
+import { upsertArtifactActivity } from "../agent/activity/activityStore";
 import {
   checkPatchEligibility,
   type PatchEligibility,
@@ -106,9 +107,10 @@ export function PatchPreviewPane({
       </div>
     );
   }
+  const parsedPatch = patch.parsed;
 
   const eligibility = checkPatchEligibility(
-    patch.parsed,
+    parsedPatch,
     patch.raw,
     rootPath,
     panes,
@@ -188,6 +190,13 @@ export function PatchPreviewPane({
       setMessage(result.message);
       if (result.ok && taskId) {
         setAgentTaskStatus(taskId, "patch_applied");
+        upsertArtifactActivity(pane.payload.patchId, {
+          taskId,
+          kind: "patch_apply",
+          status: "completed",
+          title: "Patch applied",
+          summary: `${parsedPatch.files.length} files · +${summary.additions} -${summary.deletions}`,
+        });
       }
       if (result.ok && result.snapshot) {
         setSnapshot(result.snapshot);
@@ -198,6 +207,15 @@ export function PatchPreviewPane({
     } catch (reason) {
       setApplyState("failed");
       setMessage(String(reason));
+      if (taskId) {
+        upsertArtifactActivity(pane.payload.patchId, {
+          taskId,
+          kind: "patch_apply",
+          status: "failed",
+          title: "Patch apply failed",
+          summary: String(reason),
+        });
+      }
     }
   };
 
@@ -215,11 +233,27 @@ export function PatchPreviewPane({
       setRollbackState(result.ok ? "rolled-back" : "failed");
       if (result.ok && taskId) {
         setAgentTaskStatus(taskId, "rolled_back");
+        upsertArtifactActivity(pane.payload.patchId, {
+          taskId,
+          kind: "rollback",
+          status: "completed",
+          title: "Patch rolled back",
+          summary: `${parsedPatch.files.length} files restored`,
+        });
       }
       setMessage(result.message);
     } catch (reason) {
       setRollbackState("failed");
       setMessage(String(reason));
+      if (taskId) {
+        upsertArtifactActivity(pane.payload.patchId, {
+          taskId,
+          kind: "rollback",
+          status: "failed",
+          title: "Rollback failed",
+          summary: String(reason),
+        });
+      }
     }
   };
 

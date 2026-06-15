@@ -23,7 +23,8 @@ function proposal(raw: string, shellHint?: ShellHint): CommandProposal {
     commands,
     shellHint,
     risk: classified.risk,
-    reason: classified.reason,
+    reason: classified.reasons.join(" "),
+    analysis: classified,
   };
 }
 

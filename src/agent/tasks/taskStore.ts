@@ -12,6 +12,7 @@ function cloneTask(task: AgentTask): AgentTask {
     patchIds: [...task.patchIds],
     commandProposalIds: [...task.commandProposalIds],
     commandRunIds: [...task.commandRunIds],
+    routerDecisionIds: [...task.routerDecisionIds],
   };
 }
 
@@ -65,6 +66,7 @@ export function createAgentTask(
     patchIds: [],
     commandProposalIds: [],
     commandRunIds: [],
+    routerDecisionIds: [],
   };
   tasks.set(task.id, task);
   publish();
@@ -112,6 +114,14 @@ export function attachCommandRun(taskId: string, runId: string) {
     ...task,
     commandRunIds: appendUnique(task.commandRunIds, runId),
     status: nextStatus(task, "command_running"),
+    updatedAt: new Date().toISOString(),
+  }));
+}
+
+export function attachRouterDecision(taskId: string, decisionId: string) {
+  return updateTask(taskId, (task) => ({
+    ...task,
+    routerDecisionIds: appendUnique(task.routerDecisionIds, decisionId),
     updatedAt: new Date().toISOString(),
   }));
 }

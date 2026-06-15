@@ -4,6 +4,7 @@ export type AgentSettings = {
   temperature: number;
   maxTokens: number;
   streaming: boolean;
+  showCodexRouterSuggestions: boolean;
 };
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -12,6 +13,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   temperature: 0.2,
   maxTokens: 4096,
   streaming: true,
+  showCodexRouterSuggestions: true,
 };
 
 const STORAGE_KEY = "arc-workbench.agent.settings.v1";
@@ -44,6 +46,10 @@ export function loadAgentSettings(): AgentSettings {
         typeof value.streaming === "boolean"
           ? value.streaming
           : DEFAULT_AGENT_SETTINGS.streaming,
+      showCodexRouterSuggestions:
+        typeof value.showCodexRouterSuggestions === "boolean"
+          ? value.showCodexRouterSuggestions
+          : DEFAULT_AGENT_SETTINGS.showCodexRouterSuggestions,
     };
   } catch {
     localStorage.removeItem(STORAGE_KEY);

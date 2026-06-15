@@ -22,6 +22,7 @@ import type { CommandProposal } from "../commands/commandTypes";
 import { CommandProposalCard } from "../components/CommandProposalCard";
 import { AgentTaskCard } from "../components/AgentTaskCard";
 import { useAgentTasks } from "../agent/tasks/useAgentTasks";
+import { getAgentTask } from "../agent/tasks/taskStore";
 import {
   attachAssistantMessage,
   attachCommandProposal,
@@ -31,6 +32,18 @@ import {
   createAgentTask,
 } from "../agent/tasks/taskStore";
 import {
+  dismissRouterDecision,
+  evaluateTaskRouting,
+  keepTaskLocal,
+  useRouterDecisions,
+} from "../agent/router/routerStore";
+import { buildCodexHandoffPrompt } from "../agent/router/buildCodexHandoffPrompt";
+import { CodexRouterCard } from "../components/CodexRouterCard";
+import { ToolRequestCard } from "../components/ToolRequestCard";
+import { getGitFileDiff, getGitStatus } from "../api/gitApi";
+import {
+  getTerminalCommandRunsForTask,
+  getTerminalOutputSinceRun,
   useTerminalRuntime,
   type TerminalCommandRun,
   type TerminalOutputCapture,
@@ -38,8 +51,28 @@ import {
 import type { ExtractedPatch, PatchFile } from "../patch/patchTypes";
 import type {
   AgentFloatingPane,
+  EditorFloatingPane,
   FloatingPaneState,
 } from "../workspace/floatingPaneTypes";
+import {
+  loadPermissionSettings,
+  savePermissionSettings,
+  selectPermissionProfile,
+} from "../agent/permissions/permissionSettings";
+import type {
+  AgentPermissionProfile,
+  AgentPermissionSettings,
+} from "../agent/permissions/permissionTypes";
+import { extractToolRequests } from "../agent/tools/extractToolRequests";
+import { runReadOnlyTool } from "../agent/tools/runReadOnlyTool";
+import type {
+  ToolRequest,
+  ToolResult,
+} from "../agent/tools/toolTypes";
+import {
+  addAgentActivity,
+  upsertArtifactActivity,
+} from "../agent/activity/activityStore";
 
 type Props = {
   pane: AgentFloatingPane;
@@ -57,12 +90,14 @@ type Props = {
     risk: import("../commands/commandTypes").CommandRisk,
     source?: TerminalCommandRun["source"],
     shellHint?: import("../commands/commandTypes").ShellHint,
+    runLocation?: import("../commands/commandRiskTypes").CommandRunLocation,
   ) => Promise<TerminalCommandRun>;
   onRunCommandInNewTerminal: (
     command: string,
     risk: import("../commands/commandTypes").CommandRisk,
     source?: TerminalCommandRun["source"],
     shellHint?: import("../commands/commandTypes").ShellHint,
+    runLocation?: import("../commands/commandRiskTypes").CommandRunLocation,
   ) => Promise<TerminalCommandRun>;
   onFocusTerminal: (paneId: string) => void;
 };
@@ -73,6 +108,7 @@ type ChatMessage = AgentMessage & {
   taskId: string;
   patches?: Array<{ id: string; patch: ExtractedPatch }>;
   commands?: CommandProposal[];
+  tools?: Array<{ request: ToolRequest; result?: ToolResult }>;
 };
 
 const DEFAULT_CONTEXT: AgentContextSelection = {
@@ -122,6 +158,29 @@ function resolveWorkspacePath(
   )}`;
 }
 
+function routingMetadataFromContext(contextText: string) {
+  const gitStatus = /<git_status>[\s\S]*?files:\n([\s\S]*?)\n<\/git_status>/.exec(
+    contextText,
+  )?.[1];
+  const selectedDiff = /<git_diff\b[^>]*>\n([\s\S]*?)\n<\/git_diff>/.exec(
+    contextText,
+  )?.[1];
+  const workspace = /<workspace>[\s\S]*?files:\n([\s\S]*?)\n<\/workspace>/.exec(
+    contextText,
+  )?.[1];
+  return {
+    gitChangedFileCount: gitStatus
+      ? gitStatus.split(/\r?\n/).filter(Boolean).length
+      : undefined,
+    selectedDiffSize: selectedDiff?.length,
+    workspaceFileCount: workspace
+      ? workspace
+          .split(/\r?\n/)
+          .filter((line) => line && line !== "[truncated]").length
+      : undefined,
+  };
+}
+
 export function AgentPane({
   pane,
   panes,
@@ -140,6 +199,9 @@ export function AgentPane({
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string>();
+  const [permissions, setPermissions] = useState<AgentPermissionSettings>(
+    loadPermissionSettings,
+  );
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeStreamIdRef = useRef<string | undefined>(undefined);
   const streamMessageIdRef = useRef<string | undefined>(undefined);
@@ -148,6 +210,7 @@ export function AgentPane({
   const unlistenStreamRef = useRef<(() => void) | undefined>(undefined);
   const terminalRuntime = useTerminalRuntime();
   const tasks = useAgentTasks();
+  const routerDecisions = useRouterDecisions();
   const terminalPanes = panes
     .filter((candidate) => candidate.kind === "terminal")
     .sort((left, right) => right.zIndex - left.zIndex);
@@ -185,7 +248,71 @@ export function AgentPane({
     }
   };
 
-  const attachResponseArtifacts = (
+  const toolContext = () => {
+    const activeTerminal = terminalPanes[0];
+    return {
+      workspaceRoot: rootPath,
+      openEditors: panes
+        .filter(
+          (candidate): candidate is EditorFloatingPane =>
+            candidate.kind === "editor",
+        )
+        .map((editor) => ({
+          path: editor.payload.filePath ?? editor.title,
+          content: editor.payload.content,
+        })),
+      recentTerminalOutput: activeTerminal
+        ? terminalRuntime.find((runtime) => runtime.paneId === activeTerminal.id)
+            ?.output
+        : undefined,
+    };
+  };
+
+  const runTool = async (
+    taskId: string,
+    messageId: string,
+    request: ToolRequest,
+  ) => {
+    upsertArtifactActivity(request.id, {
+      taskId,
+      kind: "tool_request",
+      status: "running",
+      title: `Reading · ${request.tool}`,
+      summary: "Workspace-bounded read-only tool",
+    });
+    const result = await runReadOnlyTool(request, toolContext());
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              tools: message.tools?.map((tool) =>
+                tool.request.id === request.id ? { ...tool, result } : tool,
+              ),
+            }
+          : message,
+      ),
+    );
+    upsertArtifactActivity(request.id, {
+      taskId,
+      kind: "tool_result",
+      status: result.status,
+      title:
+        result.status === "completed"
+          ? `Read tool completed · ${request.tool}`
+          : `Read tool failed · ${request.tool}`,
+      summary: result.summary,
+    });
+    if (permissions.autoSendToolResults && result.status === "completed") {
+      window.setTimeout(() => {
+        void sendToolResult(taskId, request, result).catch((reason) =>
+          setError(String(reason)),
+        );
+      }, 0);
+    }
+  };
+
+  const attachResponseArtifacts = async (
     messageId: string,
     taskId: string,
     content: string,
@@ -195,19 +322,57 @@ export function AgentPane({
       patch,
     }));
     const commands = extractCommandProposals(content);
+    const tools = extractToolRequests(content).map((request) => ({ request }));
     for (const patch of patches) {
       attachPatch(taskId, patch.id);
     }
     for (const command of commands) {
       attachCommandProposal(taskId, command.id);
     }
+    for (const patch of patches) {
+      addAgentActivity({
+        taskId,
+        kind: "patch",
+        status: "awaiting_approval",
+        title: "Patch detected",
+        summary: `${patch.patch.parsed?.files.length ?? 0} files`,
+        artifactId: patch.id,
+      });
+    }
+    const task = getAgentTask(taskId);
+    if (pane.payload.showCodexRouterSuggestions ?? true) {
+      evaluateTaskRouting(taskId, {
+        assistantResponse: content,
+        patchCount: task?.patchIds.length ?? patches.length,
+        patchFileCount:
+          patches.reduce(
+            (count, item) => count + (item.patch.parsed?.files.length ?? 0),
+            0,
+          ) +
+          messages
+            .filter((message) => message.taskId === taskId)
+            .flatMap((message) => message.patches ?? [])
+            .reduce(
+              (count, item) =>
+                count + (item.patch.parsed?.files.length ?? 0),
+              0,
+            ),
+        commandProposalCount:
+          task?.commandProposalIds.length ?? commands.length,
+      });
+    }
     setMessages((current) =>
       current.map((message) =>
         message.id === messageId
-          ? { ...message, content, patches, commands }
+          ? { ...message, content, patches, commands, tools }
           : message,
       ),
     );
+    if (permissions.readTools === "auto_allow") {
+      await Promise.all(
+        tools.map(({ request }) => runTool(taskId, messageId, request)),
+      );
+    }
   };
 
   const finishStream = (
@@ -218,7 +383,7 @@ export function AgentPane({
     const taskId = streamTaskIdRef.current;
     const content = streamContentRef.current;
     if (messageId && taskId && content && kind !== "error") {
-      attachResponseArtifacts(messageId, taskId, content);
+      void attachResponseArtifacts(messageId, taskId, content);
     }
     if (kind === "cancelled") {
       setError("Agent stream cancelled.");
@@ -262,6 +427,14 @@ export function AgentPane({
       createdAt: new Date().toISOString(),
       taskId: task.id,
     };
+    if (pane.payload.showCodexRouterSuggestions ?? true) {
+      evaluateTaskRouting(task.id, {
+        userMessage: requestText,
+        hasWorkspaceRoot: Boolean(rootPath),
+        patchCount: task.patchIds.length,
+        commandProposalCount: task.commandProposalIds.length,
+      });
+    }
     setMessages((current) => [...current, userMessage]);
     if (clearInput) {
       setInput("");
@@ -274,6 +447,9 @@ export function AgentPane({
         rootPath,
         selection: context,
       });
+      if (pane.payload.showCodexRouterSuggestions ?? true) {
+        evaluateTaskRouting(task.id, routingMetadataFromContext(contextText));
+      }
       const composed = contextText
         ? `Context:\n${contextText}\n\nUser request:\n${requestText}`
         : requestText;
@@ -303,7 +479,7 @@ export function AgentPane({
             taskId: task.id,
           },
         ]);
-        attachResponseArtifacts(messageId, task.id, response.content);
+        await attachResponseArtifacts(messageId, task.id, response.content);
         setLoading(false);
         return;
       }
@@ -425,6 +601,21 @@ ${capture.output}
     await sendMessage(message, false, run.source?.taskId);
   };
 
+  const sendToolResult = async (
+    taskId: string,
+    request: ToolRequest,
+    result: ToolResult,
+  ) => {
+    const message = `Tool result for ${request.tool}:
+
+<tool_result>
+${result.output}
+</tool_result>
+
+Continue the analysis based on this result.`;
+    await sendMessage(message, false, taskId);
+  };
+
   const stop = async () => {
     const streamId = activeStreamIdRef.current;
     if (!streamId) {
@@ -474,6 +665,65 @@ ${capture.output}
         ? `Opened ${opened} file(s); skipped ${skipped} unavailable file(s).`
         : undefined,
     );
+  };
+
+  const copyCodexHandoff = async (taskId: string) => {
+    const task = getAgentTask(taskId);
+    if (!task) {
+      throw new Error("Agent task is no longer available.");
+    }
+    const taskMessages = messages.filter((message) => message.taskId === taskId);
+    const userRequest =
+      taskMessages.find((message) => message.role === "user")?.content ??
+      task.title;
+    const localAgentConclusion = [...taskMessages]
+      .reverse()
+      .find((message) => message.role === "assistant")?.content;
+    const gitPane = panes
+      .filter((candidate) => candidate.kind === "git")
+      .sort((left, right) => right.zIndex - left.zIndex)[0];
+    const gitRoot = gitPane?.payload.rootPath ?? rootPath;
+    let gitStatusSummary: string | undefined;
+    let selectedDiffSummary: string | undefined;
+    if (gitRoot) {
+      try {
+        const status = await getGitStatus(gitRoot);
+        gitStatusSummary = [
+          `branch: ${status.branch ?? "unknown"}`,
+          ...status.files.map((file) => `${file.status} ${file.path}`),
+        ].join("\n");
+        if (gitPane?.payload.selectedFile) {
+          const diff = await getGitFileDiff(gitRoot, gitPane.payload.selectedFile);
+          selectedDiffSummary = `${gitPane.payload.selectedFile}\n${diff}`;
+        }
+      } catch (reason) {
+        gitStatusSummary = `Unavailable: ${String(reason)}`;
+      }
+    }
+    const recentCommandResults = getTerminalCommandRunsForTask(taskId).map(
+      (run) => {
+        const capture = getTerminalOutputSinceRun(run.id);
+        return `Command: ${run.command}\nStatus: ${
+          run.completionStatus ?? run.status
+        }\nExit code: ${run.exitCode ?? "unknown"}\nOutput:\n${capture.output}`;
+      },
+    );
+    const prompt = buildCodexHandoffPrompt({
+      taskTitle: task.title,
+      userRequest,
+      workspaceRoot: rootPath,
+      gitStatusSummary,
+      selectedDiffSummary,
+      recentCommandResults,
+      localAgentConclusion,
+    });
+    await navigator.clipboard.writeText(prompt);
+  };
+
+  const changePermissionProfile = (profile: AgentPermissionProfile) => {
+    const next = selectPermissionProfile(profile, permissions);
+    setPermissions(next);
+    savePermissionSettings(next);
   };
 
   return (
@@ -543,6 +793,23 @@ ${capture.output}
             Stream
           </span>
         </label>
+        <label className="agent-streaming-setting agent-router-setting">
+          <span>Router</span>
+          <span>
+            <input
+              aria-label="Show Codex Router Suggestions"
+              type="checkbox"
+              checked={pane.payload.showCodexRouterSuggestions ?? true}
+              disabled={loading}
+              onChange={(event) =>
+                onUpdate(pane.id, {
+                  showCodexRouterSuggestions: event.target.checked,
+                })
+              }
+            />
+            Suggestions
+          </span>
+        </label>
       </div>
       <div className="agent-context-chips" aria-label="Agent context">
         {CONTEXT_LABELS.map(([key, label]) => (
@@ -559,6 +826,44 @@ ${capture.output}
           </button>
         ))}
       </div>
+      <div className="agent-permissions">
+        <label>
+          <span>Permissions</span>
+          <select
+            aria-label="Agent permission profile"
+            value={permissions.profile}
+            onChange={(event) =>
+              changePermissionProfile(
+                event.target.value as AgentPermissionProfile,
+              )
+            }
+          >
+            <option value="strict">Strict</option>
+            <option value="balanced">Balanced</option>
+            <option value="fast_inspect">Fast Inspect</option>
+            <option value="expert">Expert</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label>
+          <input
+            aria-label="Auto-send tool results"
+            type="checkbox"
+            checked={permissions.autoSendToolResults}
+            onChange={(event) => {
+              const next = {
+                ...permissions,
+                profile: "custom" as const,
+                autoSendToolResults: event.target.checked,
+              };
+              setPermissions(next);
+              savePermissionSettings(next);
+            }}
+          />
+          Auto-send tool results
+        </label>
+        <span>Read tools: {permissions.readTools.replaceAll("_", " ")}</span>
+      </div>
       <div className="agent-chat" aria-label="Agent chat history">
         {tasks.filter((task) => task.status !== "closed").length === 0 && (
           <div className="agent-chat-empty">
@@ -573,6 +878,23 @@ ${capture.output}
               task={task}
               onClose={closeAgentTask}
             >
+              {(pane.payload.showCodexRouterSuggestions ?? true) &&
+                routerDecisions
+                  .filter(
+                    (decision) =>
+                      decision.taskId === task.id &&
+                      decision.status === "suggested" &&
+                      decision.recommendedWorker !== "local",
+                  )
+                  .map((decision) => (
+                    <CodexRouterCard
+                      key={decision.id}
+                      decision={decision}
+                      onDismiss={dismissRouterDecision}
+                      onKeepLocal={keepTaskLocal}
+                      onCopyHandoff={() => copyCodexHandoff(task.id)}
+                    />
+                  ))}
               {messages
                 .filter((message) => message.taskId === task.id)
                 .map((message) => (
@@ -639,6 +961,8 @@ ${capture.output}
                           key={proposal.id}
                           proposal={proposal}
                           taskId={task.id}
+                          workspaceRoot={rootPath}
+                          permissions={permissions}
                           sourceAgentMessageId={message.id}
                           terminals={terminalOptions}
                           defaultTerminalId={defaultTerminalId}
@@ -646,6 +970,34 @@ ${capture.output}
                           onRunInNewTerminal={onRunCommandInNewTerminal}
                           onSendResultToAgent={sendCommandResult}
                           onOpenTerminal={onFocusTerminal}
+                        />
+                      ))}
+                    {message.role === "assistant" &&
+                      message.tools?.map(({ request, result }) => (
+                        <ToolRequestCard
+                          key={request.id}
+                          taskId={task.id}
+                          request={request}
+                          result={result}
+                          permission={permissions.readTools}
+                          onRun={(toolRequest) =>
+                            runTool(task.id, message.id, toolRequest)
+                          }
+                          onSendResult={(toolRequest, toolResult) =>
+                            sendToolResult(task.id, toolRequest, toolResult)
+                          }
+                          onOpenFile={async (path) => {
+                            const absolutePath = resolveWorkspacePath(
+                              rootPath,
+                              path,
+                            );
+                            if (!absolutePath) {
+                              throw new Error(
+                                "Tool result path is outside the workspace.",
+                              );
+                            }
+                            await onOpenFile(absolutePath);
+                          }}
                         />
                       ))}
                   </div>

@@ -163,17 +163,18 @@ diffs, and workspace file lists are bounded and secret-looking values are
 redacted.
 
 Streaming responses are enabled by default. The **Stream** toggle is persisted
-with the endpoint, model, temperature, and token settings. While a response is
-active, assistant text appears incrementally and **Send** becomes **Stop**.
-Stopping cancels the backend stream and retains any partial response. Disabling
-the toggle uses the existing non-streaming request path as a fallback.
+with the endpoint, model, temperature, and token settings. **Show Codex Router
+Suggestions** is enabled by default and stored with the same settings. While a
+response is active, assistant text appears incrementally and **Send** becomes
+**Stop**. Stopping cancels the backend stream and retains any partial response.
+Disabling the toggle uses the existing non-streaming request path as a fallback.
 
 Streaming targets OpenAI-compatible SSE `data:` responses and a `[DONE]`
 terminator. Local servers with different event formats may not work without an
 adapter. Streaming requests have a 300-second limit; non-streaming requests keep
 the 120-second timeout. Patch detection runs once after completion or
 cancellation, not for every token. The model has no tool calls, cannot execute
-commands itself, does not apply patches automatically, and cannot escalate to
+commands itself, does not apply patches automatically, and cannot execute
 Codex.
 
 One compatible local server example is:
@@ -199,12 +200,14 @@ approved text with Arc-owned start/end markers and writes it through the
 existing PTY input path of a visible terminal pane; Arc does not create a
 hidden command process.
 
-A coarse classifier labels proposals low, medium, high, or blocked. Medium
-commands require confirmation, high commands show a stronger destructive-state
-warning, and blocked patterns such as `mkfs`, `dd if=`, download-to-shell pipes,
-power commands, and fork bombs expose Copy only. This classifier is a UX safety
-layer, not a complete shell security parser, and it does not restrict commands
-the user types manually.
+A risk analyzer labels proposals low, medium, high, or critical and classifies
+them as inspect, check, modifying, or dangerous. It shows reasons, detected
+patterns, estimated scope, and safer alternatives where available. The
+analyzer is advisory rather than a judge: modifying commands require review,
+while dangerous patterns such as `rm -rf`, `sudo`, `mkfs`, `dd`,
+download-to-shell pipes, and power commands require the user to type `RUN`.
+Commands are not silently or permanently blocked unless Arc cannot mediate
+them at all.
 
 The **Terminal Output** context chip is disabled by default. When enabled, Arc
 attaches up to 20k ANSI-stripped characters from the most recently focused
@@ -212,7 +215,51 @@ terminal. Runtime buffers retain at most 50k characters per terminal in memory
 and are never stored in layout localStorage.
 
 There is no autonomous command loop, automatic test execution, command retry,
-tool-calling protocol, or Codex routing.
+or write-capable tool protocol.
+
+## Agent Permissions v0
+
+The Agent pane provides Strict, Balanced, Fast Inspect, Expert, and Custom
+permission profiles. Balanced is the default: workspace-bounded read tools are
+auto-allowed, inspect and check commands still need a click, modifying commands
+require a stronger review dialog, and dangerous commands require typed
+confirmation. Even when inspection is auto-allowed, command proposals remain
+one-click in v0; Arc does not start an autonomous command loop.
+
+Permission settings are stored separately in
+`arc-workbench.agent.permissions.v1`. Dangerous and modifying commands can
+never become silent auto-runs through the built-in profiles. The user remains
+the final authority for every shell write, filesystem patch, and rollback.
+
+## Read-Only Agent Tools v0
+
+The local Agent can request `read_file`, `read_files`,
+`list_workspace_files`, `search_workspace`, `get_git_status`, `get_git_diff`,
+`get_open_editors`, and `get_recent_terminal_output` through explicit
+`tool_request` blocks. Balanced auto-runs these read-only requests and displays
+the result as a task activity. Results are sent back to the Agent only when the
+user clicks **Send Result to Agent**, unless the separately visible auto-send
+setting is enabled.
+
+File tools accept workspace-relative paths only. A dedicated Rust read command
+canonicalizes both root and target, rejects traversal and symlink escapes,
+rejects binary and files over 1 MB, and returns text only. Frontend output is
+bounded again and passed through the shared secret redactor. Tool execution
+never invokes a shell and never writes a file.
+
+## Agent Activity UX v0
+
+Command proposals, command results, read tools, patches, patch apply, and
+rollback events use compact task activity rows. Completed activities collapse
+by default; failed activities stay expanded enough to expose the failure.
+Expanded command results retain command text, risk analysis, terminal, run
+location, captured output, and explicit feedback controls.
+
+Agent commands default to **Workspace root** when a folder is open. The visible
+PTY input includes an explicit, safely quoted `cd` or `Push-Location`; no hidden
+process is used. Terminal cwd remains selectable. Failed relative-path commands
+run from terminal cwd can show a workspace-root mismatch hint, but Arc never
+reruns them automatically.
 
 ## Command Result Feedback v0
 
@@ -268,8 +315,35 @@ Patch Preview, explicit apply/rollback approval, command risk checks, visible
 PTY execution, and explicit output submission are unchanged.
 
 Task cards are not persisted across restarts. There is no autonomous command
-loop, automatic output submission, automatic patch application, hidden
-execution, or Codex routing.
+loop, automatic output submission, automatic patch application, or hidden
+execution.
+
+## Codex Router v0
+
+Arc follows a local-model-first workflow. A deterministic frontend router
+classifies each Agent task from its English/Korean request text, completed
+assistant response, patch and command counts, tracked command failures, and
+available workspace metadata. Small bounded tasks stay local. Repository-wide
+refactors, migrations, broad architecture changes, multi-file work, and likely
+build/test/fix loops can produce a calm **Consider Codex** card. Ambiguous or
+destructive requests produce a manual-review recommendation instead.
+
+The router keeps one in-memory decision per task and updates that record as the
+task gains responses, patches, commands, or failed command results.
+Suggestions can be dismissed or kept local. Local recommendations are not
+shown as cards, which keeps the Agent task UI quiet.
+
+**Copy Handoff Prompt** creates a bounded summary containing the task, request,
+workspace path, Git status and selected diff when available, recent tracked
+command results, and the latest local Agent conclusion. The shared secret
+redactor runs over the complete prompt before it reaches the clipboard. Full
+workspace files are not copied by default.
+
+Router v0 does not call Codex, spawn a Codex CLI, create a worktree, run a
+command, apply a patch, auto-submit terminal output, or send task data to an
+external service. **Prepare Codex Handoff** is intentionally disabled. Router
+decisions and task history remain in memory only; only the suggestion toggle is
+persisted.
 
 ## Agent Patch Preview v0
 

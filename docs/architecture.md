@@ -108,23 +108,26 @@ review instead of discarding the model output. During streaming, extraction runs
 only after completion or cancellation with non-empty partial content; it is
 never invoked for individual deltas.
 
-Tool calls and autonomous command execution remain deferred because they require
-separate workspace trust, argument review, approval, cancellation, and
-output-limiting boundaries. Streaming text does not grant the model any file or
-process tools.
+Write tools and autonomous command execution remain deferred because they
+require separate workspace trust, argument review, approval, cancellation, and
+output-limiting boundaries. Streaming text grants no file mutation or process
+tool.
 
 Terminal Command Proposal v0 is a frontend post-processing path alongside patch
 extraction. Only explicitly supported shell fences and marked `Command:` lines
-become proposal objects. A coarse classifier re-evaluates the editable command
-text before every run: low commands can proceed, medium and high commands
-require escalating confirmations, and blocked patterns expose Copy only.
+become proposal objects. A risk analyzer re-evaluates editable command text
+before every run and returns level, category, reasons, detected patterns,
+scope, and a safer alternative when known. Critical commands are not
+permanently forbidden; the default policy requires an exact typed `RUN`
+confirmation.
 
 Proposal cards receive visible terminal pane IDs from workspace state. Running
 a command resolves that pane's registered PTY session, wraps the approved text
 with unique start/end markers, and calls the existing `terminal_write` command.
 Run in New Terminal creates a normal floating terminal pane, waits for its
-public PTY session registration, then uses the same write path. There is no
-hidden child process or separate command backend.
+public PTY session registration, then uses the same write path. Workspace-root
+mode adds a safely quoted visible `cd`/`Push-Location` around the marker
+wrapper. There is no hidden child process or separate command backend.
 
 Terminal panes publish session IDs and recent output to an in-memory frontend
 runtime registry. Output is capped at 50k characters per pane and is not
@@ -134,8 +137,8 @@ chip. Agent context strips ANSI sequences, limits output to 20k characters, and
 marks truncation.
 
 Future command workflow may add structured result capture, explicit output
-attachment back to the Agent, an approval-based test/fix loop, and optional
-Codex fallback. None of those loops run automatically in v0.
+attachment back to the Agent, and an approval-based test/fix loop. None of
+those loops run automatically in v0.
 
 Command Result Feedback v0 extends the same in-memory terminal runtime registry
 with command run markers. A marker is created immediately before an approved
@@ -192,8 +195,96 @@ content remain process memory only because v0 has no retention, migration,
 privacy review, or durable terminal-session semantics.
 
 Future task work may add persisted history, generated summaries, explicit
-command/test/fix loops, per-task Codex fallback approval, and task export. None
-of those capabilities are active in v0.
+command/test/fix loops, approved Codex execution, and task export. None of
+those capabilities are active in v0.
+
+## Agent Permissions and Activity v0
+
+Agent permissions are a persisted frontend policy with Strict, Balanced, Fast
+Inspect, Expert, and Custom profiles. Policies map read tools and inspect,
+check, modifying, and dangerous command categories to `auto_allow`, `ask`,
+`strong_confirm`, `typed_confirm`, or the rare `copy_only` action. Built-in
+profiles never silently auto-run modifying or dangerous commands. A risk
+analysis informs this policy but does not replace the user's decision.
+
+Command approval remains attached to visible PTY execution:
+
+```txt
+assistant shell proposal -> risk analysis -> permission action
+-> explicit user click/confirmation -> existing terminal_write
+```
+
+Inspect commands may be one-click under fast profiles. Modifying commands open
+a review dialog. Dangerous commands require exact typed confirmation. No
+profile creates an autonomous retry loop or grants implicit patch approval.
+
+Agent activities are an in-memory external store with stable snapshots.
+Commands, tool requests/results, patches, apply, rollback, and router events can
+upsert compact rows by artifact ID. Completed rows collapse by default and
+failed rows remain expanded. User expansion state survives same-status metadata
+updates, while meaningful status transitions can apply the new default.
+
+## Read-Only Tool Pipeline v0
+
+Assistant `tool_request` blocks are parsed only for a fixed read-only allowlist:
+file reads, workspace listing/search, Git status/diff, open editors, and recent
+terminal output. Balanced permissions auto-run these tools, but result feedback
+is manual by default. Tool result messages retain the originating task ID.
+
+Filesystem tools use a dedicated Rust `read_workspace_text_file` command.
+Frontend validation rejects absolute and traversal paths; Rust canonicalizes
+the workspace and target to reject symlink escapes, non-files, binary content,
+and files above the Agent tool limit. Recursive listing uses the existing
+ignored-directory behavior. Output is bounded and secret-redacted before UI or
+Agent feedback. Git tools reuse read-only Git commands with explicit process
+arguments. The tool pipeline cannot invoke a shell or write a file.
+
+The activity and permission layers improve visibility and reduce repeated
+inspection approval without changing authority: the user still approves shell
+commands, patches, rollback, and any future external worker. Future autonomous
+mode is not implemented.
+
+## Codex Router v0
+
+Codex Router v0 is a local-first recommendation layer, not a worker. Its
+deterministic classifier consumes the current user request, completed local
+Agent text, patch and command proposal counts, affected-file estimates,
+tracked command failures, Git changed-file counts, selected diff size,
+workspace size, and workspace-root availability when those values are known.
+No second model call is required.
+
+English and Korean keyword groups identify repository-wide refactors,
+architecture redesigns, migrations, broad test repair, multi-file changes, and
+likely build/test/fix loops. Numeric thresholds increase difficulty and risk
+for large diffs, many affected files, accumulated artifacts, and repeated
+failed commands. Ambiguous or destructive requests route to manual review.
+Small explanations, isolated bug fixes, and simple configuration work remain
+with the local model.
+
+Router decisions live in a `useSyncExternalStore`-compatible in-memory store.
+Each task has at most one decision ID; later classification replaces the
+decision content under the same ID. This lets PTY completion parsing raise the
+failure count outside React while the Agent task updates immediately.
+Dismissal is retained for the current recommendation so repeated events do not
+spam the same card.
+
+The Agent task renders only active Codex or manual recommendations near the top
+of the task body. Local recommendations remain stored but visually quiet.
+**Keep Local** and **Dismiss** hide the card. **Prepare Codex Handoff** is a
+disabled placeholder and cannot start any process.
+
+Handoff generation assembles bounded task, workspace, Git, selected-diff,
+tracked-command, and latest-Agent-note summaries. It does not include full
+workspace file contents. The complete generated text passes through the shared
+secret redactor immediately before clipboard writing. Generation is explicit
+and local; no prompt is transmitted automatically.
+
+Actual Codex execution is deferred because it needs a separate trust and
+approval boundary. A possible Router v1 would require a user-configured Codex
+CLI path, an explicit approval step, a temporary Git worktree, sandboxed and
+visible execution, diff import into Patch Preview, and the existing snapshot
+and rollback path. Router v0 creates none of these resources and adds no hidden
+command execution or autonomous loop.
 
 Patch cards store raw and parsed content in an in-memory patch store. A
 `PatchPreviewPane` persists no patch text and is excluded from layout storage;
@@ -287,10 +378,9 @@ remain unsupported until their rollback and conflict semantics are defined.
 
 ## Future Agent Routing
 
-A local LLM is intended to be the default worker and routing layer. Expensive
-or complex tasks may be proposed for Codex escalation, but escalation requires
-user approval. Agent changes should be represented as reviewable patches before
-application. Destructive actions must never run automatically, and neither a
+The local LLM remains the default worker. Router v0 can recommend manual Codex
+handoff, but future execution still requires explicit approval and reviewable
+patch output. Destructive actions must never run automatically, and neither a
 local agent nor Codex receives implicit approval to apply a patch.
 
 ## Non-Goals

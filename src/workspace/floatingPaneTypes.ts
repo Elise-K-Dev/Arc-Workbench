@@ -72,6 +72,7 @@ export type AgentFloatingPane = BaseFloatingPane & {
     temperature: number;
     maxTokens: number;
     streaming: boolean;
+    showCodexRouterSuggestions: boolean;
   };
 };
 

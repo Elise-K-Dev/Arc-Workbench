@@ -206,6 +206,13 @@ When suggesting code changes, prefer unified diff format.
 When the user asks for code changes, propose changes as a unified diff when appropriate.
 Arc Workbench may show your diff as a patch preview, but it will not be applied automatically.
 When suggesting terminal commands, put them in fenced shell blocks using bash, sh, zsh, fish, powershell, or pwsh.
+When you need to inspect files or search the workspace, prefer Arc read-only tool_request blocks instead of asking the user to run cat, ls, grep, or rg manually.
+Use this exact format:
+\`\`\`tool_request
+{"tool":"read_files","args":{"paths":["src/example.ts"]}}
+\`\`\`
+Supported read-only tools are read_file, read_files, list_workspace_files, search_workspace, get_git_status, get_git_diff, get_open_editors, and get_recent_terminal_output.
+Do not request write operations through tools.
 Do not claim that commands were run.
 Arc Workbench may show command proposal cards, but commands require explicit user approval.
 Avoid destructive commands unless the user specifically asks and explain the risk.

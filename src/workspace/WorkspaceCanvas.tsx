@@ -63,12 +63,14 @@ type Props = {
     risk: import("../commands/commandTypes").CommandRisk,
     source?: import("../terminal/terminalRuntime").TerminalCommandRun["source"],
     shellHint?: import("../commands/commandTypes").ShellHint,
+    runLocation?: import("../commands/commandRiskTypes").CommandRunLocation,
   ) => Promise<import("../terminal/terminalRuntime").TerminalCommandRun>;
   onRunCommandInNewTerminal: (
     command: string,
     risk: import("../commands/commandTypes").CommandRisk,
     source?: import("../terminal/terminalRuntime").TerminalCommandRun["source"],
     shellHint?: import("../commands/commandTypes").ShellHint,
+    runLocation?: import("../commands/commandRiskTypes").CommandRunLocation,
   ) => Promise<import("../terminal/terminalRuntime").TerminalCommandRun>;
   onFocusTerminal: (paneId: string) => void;
 };

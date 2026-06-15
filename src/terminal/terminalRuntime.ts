@@ -1,11 +1,13 @@
 import { useSyncExternalStore } from "react";
 import type { CommandRisk } from "../commands/commandTypes";
 import type { ShellHint } from "../commands/commandTypes";
+import type { CommandRunLocation } from "../commands/commandRiskTypes";
 import { redactSecrets, stripAnsi } from "../agent/redaction";
 import {
   attachCommandRun,
   setAgentTaskStatus,
 } from "../agent/tasks/taskStore";
+import { recordRouterCommandFailure } from "../agent/router/routerStore";
 
 export type TerminalRuntimeEntry = {
   paneId: string;
@@ -39,6 +41,8 @@ export type TerminalCommandRun = {
     | "unknown";
   completionStatus?: "completed" | "failed" | "unknown";
   shellHint?: ShellHint;
+  runLocation: CommandRunLocation;
+  workspaceRoot?: string;
   source?: {
     agentMessageId?: string;
     proposalId?: string;
@@ -174,6 +178,9 @@ function parseCommandMarkers(paneId: string) {
         current.source.taskId,
         exitCode === 0 ? "command_completed" : "command_failed",
       );
+      if (exitCode !== 0) {
+        recordRouterCommandFailure(current.source.taskId);
+      }
     }
   }
 }
@@ -208,6 +215,8 @@ export function recordTerminalCommandRun(input: {
   risk: CommandRisk;
   source?: TerminalCommandRun["source"];
   shellHint?: ShellHint;
+  runLocation?: CommandRunLocation;
+  workspaceRoot?: string;
 }): TerminalCommandRun {
   const terminal = entries.get(input.paneId);
   if (!terminal?.sessionId) {
@@ -223,6 +232,8 @@ export function recordTerminalCommandRun(input: {
     outputStartOffset: terminal.outputEndOffset,
     status: "pending",
     shellHint: input.shellHint,
+    runLocation: input.runLocation ?? "terminal_cwd",
+    workspaceRoot: input.workspaceRoot,
     source: input.source,
   };
   commandRuns.set(run.id, run);
@@ -322,6 +333,13 @@ export function getLatestTerminalCommandRun(paneId: string) {
   return Array.from(commandRuns.values())
     .filter((run) => run.terminalPaneId === paneId)
     .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+}
+
+export function getTerminalCommandRunsForTask(taskId: string) {
+  return Array.from(commandRuns.values())
+    .filter((run) => run.source?.taskId === taskId)
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+    .map((run) => ({ ...run }));
 }
 
 export function useTerminalCommandRun(runId: string): TerminalCommandRun {
